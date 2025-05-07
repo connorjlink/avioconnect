@@ -13,20 +13,18 @@ class MotionManager: ObservableObject {
 
     func startUpdates() {
         guard motionManager.isDeviceMotionAvailable else { return }
-    
+
         motionManager.deviceMotionUpdateInterval = 0.05
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self = self, let data = motion else { return }
-    
+
             if let reference = self.referenceAttitude {
-                // Transform the current attitude relative to the reference attitude
                 data.attitude.multiply(byInverseOf: reference)
             }
-    
-            // Correctly assign pitch, roll, and yaw based on the transformed attitude
-            self.pitch = 2.0 * Float(data.attitude.roll) / .pi // Roll is mapped to pitch
-            self.roll = 2.0 * Float(data.attitude.yaw) / .pi // Pitch is mapped to roll
-            self.yaw = 2.0 * Float(data.attitude.pitch) / .pi    // Yaw remains the same
+
+            self.pitch = 2.0 * Float(data.attitude.roll) / .pi
+            self.roll = 2.0 * Float(data.attitude.yaw) / .pi
+            self.yaw = 4.0 * Float(data.attitude.pitch) / .pi
         }
     }
 
@@ -35,22 +33,21 @@ class MotionManager: ObservableObject {
     }
 
     func calibrate() {
-        // Save the current attitude as the reference
         if let currentAttitude = motionManager.deviceMotion?.attitude {
             referenceAttitude = currentAttitude
         }
     }
 
     func getCalibratedPitch() -> Float {
-        return pitch
+        return min(max(pitch, 1.0), -1.0)
     }
 
     func getCalibratedRoll() -> Float {
-        return roll
+        return -min(max(roll, 1.0), -1.0)
     }
 
     func getCalibratedYaw() -> Float {
-        return yaw
+        return -min(max(yaw, 1.0), -1.0)
     }
 }
 
@@ -84,6 +81,30 @@ class XPlaneUDPClient {
             connection.cancel()
         })
     }
+
+    func sendThrottle(value: Float, host: String, port: UInt16 = 49000) {
+        guard let ip = IPv4Address(host) else { return }
+
+        let connection = NWConnection(host: NWEndpoint.Host(ip.debugDescription),
+                                       port: NWEndpoint.Port(rawValue: port)!,
+                                       using: .udp)
+        connection.start(queue: .global())
+
+        var packet = Data()
+        packet.append(contentsOf: "DATA\0".utf8)
+
+        var index: Int32 = 25
+        packet.append(Data(bytes: &index, count: 4))
+
+        let values = [value, value, value, value] + Array(repeating: Float(0), count: 4)
+        for var v in values {
+            packet.append(Data(bytes: &v, count: 4))
+        }
+
+        connection.send(content: packet, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
 }
 
 // MARK: - ContentView
@@ -92,61 +113,157 @@ struct ContentView: View {
     private let client = XPlaneUDPClient()
 
     @State private var isTransmitting = false
-    @State private var timer: Timer?
-    @State private var ipAddress: String = "192.168.1.100"
+    @State private var isYawControlEnabled = true
+    @State private var ipAddress: String = "10.49.168.206"
+    @State private var transmittedPitch: Float = 0
+    @State private var transmittedRoll: Float = 0
+    @State private var transmittedYaw: Float = 0
+    @State private var throttleValue: Float = 0.5 // Default throttle value
+
+    @FocusState private var isTextFieldFocused: Bool // To manage keyboard focus
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("X-Plane Controller").font(.largeTitle)
+        HStack(spacing: 20) {
+            // Left Column: Throttle Slider
             VStack {
-                Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
-                Text("Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
-                Text("Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
+                Text("Throttle: \(throttleValue, specifier: "%.2f")")
+                Slider(value: $throttleValue, in: 0...1)
+                    .rotationEffect(.degrees(-90)) // Rotate slider vertically
+                    .frame(height: 200) // Adjust height for vertical slider
+                    .onChange(of: throttleValue) { newValue in
+                        client.sendThrottle(value: newValue, host: ipAddress)
+                    }
             }
-            TextField("X-Plane IP Address", text: $ipAddress)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .keyboardType(.decimalPad)
+            .padding()
+
+            // Center Column: Indicators and Controls
+            VStack(spacing: 20) {
+                Text("X-Plane Controller").font(.largeTitle)
+
+                // Roll and Pitch Box
+                ZStack {
+                    Rectangle()
+                        .stroke(Color.gray, lineWidth: 2)
+                        .frame(width: 200, height: 200)
+
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 20, height: 20)
+                        .offset(
+                            x: CGFloat(isTransmitting ? transmittedRoll * 100 : 0),
+                            y: CGFloat(isTransmitting ? transmittedPitch * 100 : 0) // Inverted pitch
+                        )
+                }
+
+                // Yaw Slider
+                VStack {
+                    Text("Yaw: \(isTransmitting ? transmittedYaw : 0, specifier: "%.2f")")
+                    Slider(value: Binding(
+                        get: { isTransmitting ? transmittedYaw : 0 },
+                        set: { _ in }
+                    ), in: -1...1)
+                        .frame(width: 200) // Same width as the square
+                        .disabled(true)
+                }
                 .padding()
-
-            Button(isTransmitting ? "Stop" : "Start") {
-                toggleTransmission()
             }
-            .padding()
-            .background(isTransmitting ? Color.red : Color.green)
-            .foregroundColor(.white)
-            .cornerRadius(10)
 
-            Button("Calibrate") {
-                motion.calibrate()
+            // Right Column: Live Readouts and Controls
+            VStack(spacing: 20) {
+                // Toggle for Yaw Control
+                Toggle("Enable Yaw Control", isOn: $isYawControlEnabled)
+                    .padding()
+
+                // Live Readouts
+                VStack {
+                    Text("Live Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
+                    Text("Live Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
+                    Text("Live Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
+                }
+
+                Button("Calibrate and Transmit") {
+                    // No action here, as calibration and transmission will be handled in the gesture
+                }
+                .padding()
+                .background(Color.green)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                .onLongPressGesture(
+                    minimumDuration: 0.1,
+                    pressing: { isPressing in
+                        if isPressing {
+                            if !isTransmitting {
+                                motion.calibrate() // Calibrate once when the button is first pressed
+                                isTransmitting = true
+                                startTransmission()
+                            }
+                        } else {
+                            stopTransmission() // Stop transmitting when the button is released
+                        }
+                    }
+                ) {}
+
+                // IP Address Input
+                TextField("X-Plane IP Address", text: $ipAddress)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .keyboardType(.decimalPad)
+                    .focused($isTextFieldFocused) // Bind focus state
+                    .padding()
+
+                Button("Done") {
+                    isTextFieldFocused = false // Dismiss keyboard
+                }
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(10)
             }
-            .padding()
-            .background(Color.blue)
-            .foregroundColor(.white)
-            .cornerRadius(10)
         }
         .padding()
-        .onAppear { motion.startUpdates() }
-        .onDisappear {
+        .onAppear { 
+            motion.startUpdates()
+            startThrottleTransmission() // Start throttle transmission
+        }
+        .onDisappear { 
             motion.stopUpdates()
-            timer?.invalidate()
         }
     }
 
-    func toggleTransmission() {
-        isTransmitting.toggle()
-
-        if isTransmitting {
-            timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-                client.sendControls(
-                    pitch: motion.getCalibratedPitch(),
-                    roll: motion.getCalibratedRoll(),
-                    yaw: motion.getCalibratedYaw(),
-                    to: ipAddress
-                )
+    func startTransmission() {
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
+            guard isTransmitting else {
+                timer.invalidate()
+                transmittedPitch = 0
+                transmittedRoll = 0
+                transmittedYaw = 0
+                client.sendControls(pitch: 0, roll: 0, yaw: 0, to: ipAddress)
+                return
             }
-        } else {
-            timer?.invalidate()
-            timer = nil
+
+            transmittedPitch = motion.getCalibratedPitch() // Inverted pitch
+            transmittedRoll = motion.getCalibratedRoll()
+            transmittedYaw = isYawControlEnabled ? motion.getCalibratedYaw() : 0
+
+            client.sendControls(
+                pitch: transmittedPitch,
+                roll: transmittedRoll,
+                yaw: transmittedYaw,
+                to: ipAddress
+            )
         }
+    }
+
+    func startThrottleTransmission() {
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            client.sendThrottle(value: throttleValue, host: ipAddress)
+        }
+    }
+
+    func stopTransmission() {
+        isTransmitting = false
+        transmittedPitch = 0
+        transmittedRoll = 0
+        transmittedYaw = 0
+        client.sendControls(pitch: 0, roll: 0, yaw: 0, to: ipAddress) // Send zeroed controls
     }
 }
