@@ -51,6 +51,59 @@ class MotionManager: ObservableObject {
     }
 }
 
+// MARK: - XPlaneBeaconListener
+class XPlaneBeaconListener: ObservableObject {
+    @Published var detectedInstances: [XPlaneInstance] = []
+    private var listener: NWListener?
+
+    struct XPlaneInstance: Identifiable {
+        let id = UUID()
+        let ipAddress: String
+        let port: UInt16
+    }
+
+    func startListening() {
+        do {
+            let parameters = NWParameters.udp
+            listener = try NWListener(using: parameters, on: 49707)
+            listener?.newConnectionHandler = { [weak self] connection in
+                self?.handleConnection(connection)
+            }
+            listener?.start(queue: .main)
+        } catch {
+            print("Failed to start listener: \(error)")
+        }
+    }
+
+    func stopListening() {
+        listener?.cancel()
+        listener = nil
+    }
+
+    private func handleConnection(_ connection: NWConnection) {
+        connection.start(queue: .main)
+        connection.receiveMessage { [weak self] data, _, _, _ in
+            guard let self = self, let data = data else { return }
+            self.parseBeaconData(data)
+        }
+    }
+
+    private func parseBeaconData(_ data: Data) {
+        guard data.count >= 5 else { return } // Minimum size for a valid beacon
+        let header = String(data: data.prefix(5), encoding: .utf8)
+        if header == "BECN\0" {
+            let ipAddress = data[5...8].map { String($0) }.joined(separator: ".")
+            let port = UInt16(data[9]) << 8 | UInt16(data[10])
+            DispatchQueue.main.async {
+                let instance = XPlaneInstance(ipAddress: ipAddress, port: port)
+                if !self.detectedInstances.contains(where: { $0.ipAddress == ipAddress && $0.port == port }) {
+                    self.detectedInstances.append(instance)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - XPlaneUDPClient
 class XPlaneUDPClient {
     private var connection: NWConnection?
@@ -112,6 +165,9 @@ struct ContentView: View {
     @StateObject private var motion = MotionManager()
     private let client = XPlaneUDPClient()
 
+    @StateObject private var beaconListener = XPlaneBeaconListener()
+    @State private var selectedInstance: XPlaneBeaconListener.XPlaneInstance?
+
     @State private var isTransmitting = false
     @State private var isYawControlEnabled = true
     @State private var ipAddress: String = "10.49.168.206"
@@ -124,6 +180,29 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 20) {
+            VStack {
+                Text("Detected X-Plane Instances")
+                    .font(.headline)
+    
+                List(beaconListener.detectedInstances) { instance in
+                    Button(action: {
+                        selectedInstance = instance
+                    }) {
+                        Text("\(instance.ipAddress):\(instance.port)")
+                    }
+                }
+    
+                if let selectedInstance = selectedInstance {
+                    Text("Selected Instance: \(selectedInstance.ipAddress):\(selectedInstance.port)")
+                }
+            }
+            .onAppear {
+                beaconListener.startListening()
+            }
+            .onDisappear {
+                beaconListener.stopListening()
+            }
+
             // Left Column: Throttle Slider
             VStack {
                 Text("Throttle: \(throttleValue, specifier: "%.2f")")
