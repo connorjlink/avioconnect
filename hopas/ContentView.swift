@@ -1,164 +1,6 @@
 import SwiftUI
-import CoreMotion
 import Network
-
-// MARK: - MotionManager
-class MotionManager: ObservableObject {
-    private let motionManager = CMMotionManager()
-    @Published var pitch: Float = 0
-    @Published var roll: Float = 0
-    @Published var yaw: Float = 0
-
-    private var referenceAttitude: CMAttitude?
-
-    func startUpdates() {
-        guard motionManager.isDeviceMotionAvailable else { return }
-
-        motionManager.deviceMotionUpdateInterval = 0.05
-        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let self = self, let data = motion else { return }
-
-            if let reference = self.referenceAttitude {
-                data.attitude.multiply(byInverseOf: reference)
-            }
-
-            self.pitch = 2.0 * Float(data.attitude.roll) / .pi
-            self.roll = 2.0 * Float(data.attitude.yaw) / .pi
-            self.yaw = 4.0 * Float(data.attitude.pitch) / .pi
-        }
-    }
-
-    func stopUpdates() {
-        motionManager.stopDeviceMotionUpdates()
-    }
-
-    func calibrate() {
-        if let currentAttitude = motionManager.deviceMotion?.attitude {
-            referenceAttitude = currentAttitude
-        }
-    }
-
-    func getCalibratedPitch() -> Float {
-        return min(max(pitch, 1.0), -1.0)
-    }
-
-    func getCalibratedRoll() -> Float {
-        return -min(max(roll, 1.0), -1.0)
-    }
-
-    func getCalibratedYaw() -> Float {
-        return -min(max(yaw, 1.0), -1.0)
-    }
-}
-
-// MARK: - XPlaneBeaconListener
-class XPlaneBeaconListener: ObservableObject {
-    @Published var detectedInstances: [XPlaneInstance] = []
-    private var listener: NWListener?
-
-    struct XPlaneInstance: Identifiable {
-        let id = UUID()
-        let ipAddress: String
-        let port: UInt16
-    }
-
-    func startListening() {
-        do {
-            let parameters = NWParameters.udp
-            listener = try NWListener(using: parameters, on: 49707)
-            listener?.newConnectionHandler = { [weak self] connection in
-                self?.handleConnection(connection)
-            }
-            listener?.start(queue: .main)
-        } catch {
-            print("Failed to start listener: \(error)")
-        }
-    }
-
-    func stopListening() {
-        listener?.cancel()
-        listener = nil
-    }
-
-    private func handleConnection(_ connection: NWConnection) {
-        connection.start(queue: .main)
-        connection.receiveMessage { [weak self] data, _, _, _ in
-            guard let self = self, let data = data else { return }
-            self.parseBeaconData(data)
-        }
-    }
-
-    private func parseBeaconData(_ data: Data) {
-        guard data.count >= 5 else { return } // Minimum size for a valid beacon
-        let header = String(data: data.prefix(5), encoding: .utf8)
-        if header == "BECN\0" {
-            let ipAddress = data[5...8].map { String($0) }.joined(separator: ".")
-            let port = UInt16(data[9]) << 8 | UInt16(data[10])
-            DispatchQueue.main.async {
-                let instance = XPlaneInstance(ipAddress: ipAddress, port: port)
-                if !self.detectedInstances.contains(where: { $0.ipAddress == ipAddress && $0.port == port }) {
-                    self.detectedInstances.append(instance)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - XPlaneUDPClient
-class XPlaneUDPClient {
-    private var connection: NWConnection?
-    private let queue = DispatchQueue(label: "xplane.udp")
-
-    func sendControls(pitch: Float, roll: Float, yaw: Float, to host: String, port: UInt16 = 49000) {
-        guard let ip = IPv4Address(host) else { return }
-
-        let endpoint = NWEndpoint.Host(ip.debugDescription)
-        let nwPort = NWEndpoint.Port(rawValue: port)!
-
-        let connection = NWConnection(host: endpoint, port: nwPort, using: .udp)
-        connection.start(queue: queue)
-
-        var packet = Data()
-        packet.append(contentsOf: "DATA\0".utf8)
-
-        var index: Int32 = 8
-        packet.append(Data(bytes: &index, count: 4))
-
-        var values = [pitch, roll, yaw] + Array(repeating: Float(0), count: 5)
-        for value in values {
-            var v = value
-            packet.append(Data(bytes: &v, count: 4))
-        }
-
-        connection.send(content: packet, completion: .contentProcessed { _ in
-            connection.cancel()
-        })
-    }
-
-    func sendThrottle(value: Float, host: String, port: UInt16 = 49000) {
-        guard let ip = IPv4Address(host) else { return }
-
-        let connection = NWConnection(host: NWEndpoint.Host(ip.debugDescription),
-                                       port: NWEndpoint.Port(rawValue: port)!,
-                                       using: .udp)
-        connection.start(queue: .global())
-
-        var packet = Data()
-        packet.append(contentsOf: "DATA\0".utf8)
-
-        var index: Int32 = 25
-        packet.append(Data(bytes: &index, count: 4))
-
-        let values = [value, value, value, value] + Array(repeating: Float(0), count: 4)
-        for var v in values {
-            packet.append(Data(bytes: &v, count: 4))
-        }
-
-        connection.send(content: packet, completion: .contentProcessed { _ in
-            connection.cancel()
-        })
-    }
-}
+import Combine
 
 // MARK: - ContentView
 struct ContentView: View {
@@ -168,148 +10,247 @@ struct ContentView: View {
     @StateObject private var beaconListener = XPlaneBeaconListener()
     @State private var selectedInstance: XPlaneBeaconListener.XPlaneInstance?
 
+    @StateObject private var orientationObserver = OrientationObserver()
+
+    @State private var statusUpdateTimer: Timer?
+    @State private var throttleTimer: Timer?
+    
     @State private var isTransmitting = false
+    @State private var isConnected = false
+    @State private var isOpened = false
     @State private var isYawControlEnabled = true
-    @State private var ipAddress: String = "10.49.168.206"
+    @State private var isPitchControlInverted = false
+    @State private var transmitRate: Int = 10
+    @State private var maxRollOrientation: Float = 1.0
+    @State private var maxYawOrientation: Float = 1.0
+    @State private var maxPitchOrientation: Float = 1.0
+    @State private var ipAddress: String = "192.168.1.19"
     @State private var transmittedPitch: Float = 0
     @State private var transmittedRoll: Float = 0
     @State private var transmittedYaw: Float = 0
-    @State private var throttleValue: Float = 0.5 // Default throttle value
+    @State private var throttleValue: Float = 0.0 // Default throttle value
+
+    @State private var brakesActive: Bool = false
+    @State private var reversersActive: Bool = false
+
+    @State private var isReverseThrustEnabled = false
+
+    @State private var brakesListener: NWListener?
+
+    @State private var isShowingSettings = false
 
     @FocusState private var isTextFieldFocused: Bool // To manage keyboard focus
 
     var body: some View {
-        HStack(spacing: 20) {
-            VStack {
-                Text("Detected X-Plane Instances")
-                    .font(.headline)
-    
-                List(beaconListener.detectedInstances) { instance in
-                    Button(action: {
-                        selectedInstance = instance
-                    }) {
-                        Text("\(instance.ipAddress):\(instance.port)")
-                    }
-                }
-    
-                if let selectedInstance = selectedInstance {
-                    Text("Selected Instance: \(selectedInstance.ipAddress):\(selectedInstance.port)")
-                }
-            }
-            .onAppear {
-                beaconListener.startListening()
-            }
-            .onDisappear {
-                beaconListener.stopListening()
-            }
-
-            // Left Column: Throttle Slider
-            VStack {
-                Text("Throttle: \(throttleValue, specifier: "%.2f")")
-                Slider(value: $throttleValue, in: 0...1)
-                    .rotationEffect(.degrees(-90)) // Rotate slider vertically
-                    .frame(height: 200) // Adjust height for vertical slider
-                    .onChange(of: throttleValue) { newValue in
-                        client.sendThrottle(value: newValue, host: ipAddress)
-                    }
-            }
-            .padding()
-
-            // Center Column: Indicators and Controls
-            VStack(spacing: 20) {
-                Text("X-Plane Controller").font(.largeTitle)
-
-                // Roll and Pitch Box
+        ZStack {
+            if orientationObserver.isLandscape {
+                // Main app content
                 ZStack {
-                    Rectangle()
-                        .stroke(Color.gray, lineWidth: 2)
-                        .frame(width: 200, height: 200)
-
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 20, height: 20)
-                        .offset(
-                            x: CGFloat(isTransmitting ? transmittedRoll * 100 : 0),
-                            y: CGFloat(isTransmitting ? transmittedPitch * 100 : 0) // Inverted pitch
-                        )
-                }
-
-                // Yaw Slider
-                VStack {
-                    Text("Yaw: \(isTransmitting ? transmittedYaw : 0, specifier: "%.2f")")
-                    Slider(value: Binding(
-                        get: { isTransmitting ? transmittedYaw : 0 },
-                        set: { _ in }
-                    ), in: -1...1)
-                        .frame(width: 200) // Same width as the square
-                        .disabled(true)
-                }
-                .padding()
-            }
-
-            // Right Column: Live Readouts and Controls
-            VStack(spacing: 20) {
-                // Toggle for Yaw Control
-                Toggle("Enable Yaw Control", isOn: $isYawControlEnabled)
-                    .padding()
-
-                // Live Readouts
-                VStack {
-                    Text("Live Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
-                    Text("Live Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
-                    Text("Live Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
-                }
-
-                Button("Calibrate and Transmit") {
-                    // No action here, as calibration and transmission will be handled in the gesture
-                }
-                .padding()
-                .background(Color.green)
-                .foregroundColor(.white)
-                .cornerRadius(10)
-                .onLongPressGesture(
-                    minimumDuration: 0.1,
-                    pressing: { isPressing in
-                        if isPressing {
-                            if !isTransmitting {
-                                motion.calibrate() // Calibrate once when the button is first pressed
-                                isTransmitting = true
-                                startTransmission()
+                    if !isOpened {
+                        ZStack(alignment: .topTrailing) {
+                            VStack {
+                                Text("Detected X-Plane Instances")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.top, 16)
+                    
+                                Text("Tap to connect to an instance")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                    
+                                List(beaconListener.detectedInstances) { instance in
+                                    Button(action: {
+                                        selectedInstance = instance
+                                        isOpened = true
+                                        ipAddress = instance.ipAddress
+                                    }) {
+                                        Text("\(instance.ipAddress):\(instance.port)")
+                                    }
+                                }
                             }
-                        } else {
-                            stopTransmission() // Stop transmitting when the button is released
+                            .onAppear {
+                                beaconListener.startListening()
+                            }
+                            .onDisappear {
+                                beaconListener.stopListening()
+                            }
+                    
+                            Button(action: {
+                                isOpened = true
+                            }) {
+                                Image(systemName: "forward.fill")
+                                    .imageScale(.large)
+                                    .padding()
+                            }
+                            .accessibilityLabel("Skip")
+                        }
+
+                    } else {
+                        VStack(spacing: 10) {
+                            HStack {
+                                // Connection Indicator
+                                Text("X-Plane Controller — Host: \(ipAddress)")
+                                
+                                Circle()
+                                    .fill(isConnected ? Color.green : Color.red)
+                                    .frame(width: 10, height: 10)
+                                
+                                Spacer()
+
+                                Button(action: { isShowingSettings = true }) {
+                                    Image(systemName: "gearshape")
+                                        .imageScale(.large)
+                                        .padding()
+                                }
+                                .sheet(isPresented: $isShowingSettings) {
+                                    SettingsView(
+                                        isYawControlEnabled: $isYawControlEnabled,
+                                        isPitchControlInverted: $isPitchControlInverted,
+                                        ipAddress: $ipAddress,
+                                        transmitRate: $transmitRate,
+                                        maxRollOrientation: $maxRollOrientation,
+                                        maxYawOrientation: $maxYawOrientation,
+                                        maxPitchOrientation: $maxPitchOrientation
+                                    )
+                                }
+                            }
+                            
+                            HStack {
+                                // Left Column: Throttle Slider
+                                VStack {
+                                    Text("Throttle: \(throttleValue, specifier: "%.2f")")
+                                    Slider(value: $throttleValue, in: 0...1)
+                                        .rotationEffect(.degrees(-90)) // Rotate slider vertically
+                                        .frame(height: 200) // Adjust height for vertical slider
+                                        .onChange(of: throttleValue) { newValue in
+                                            client.sendThrottle(value: newValue, host: ipAddress)
+                                        }
+                                    
+                                    HStack {
+                                        Button("Reversers") {
+                                            reversersActive.toggle()
+                                            client.sendReversers(host: ipAddress, status: reversersActive)
+                                        }
+                                        .padding()
+                                        .background(reversersActive ? Color.red : Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(10)
+
+                                        Button("Brakes") {
+                                            brakesActive.toggle()
+                                            client.sendBrakes(host: ipAddress, status: brakesActive)
+                                        }
+                                        .padding()
+                                        .background(brakesActive ? Color.red : Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(10)
+                                    }
+                                }
+                                .padding()
+
+                                // Center Column: Indicators and Controls
+                                VStack(spacing: 20) {
+                                    // Roll and Pitch Box
+                                    ZStack {
+                                        Rectangle()
+                                            .stroke(Color.gray, lineWidth: 2)
+                                            .frame(width: 200, height: 200)
+
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 20, height: 20)
+                                            .offset(
+                                                x: CGFloat(isTransmitting ? transmittedRoll * 100 : 0),
+                                                y: CGFloat(isTransmitting ? transmittedPitch * 100 : 0)
+                                            )
+                                    }
+
+                                    // Yaw Slider
+                                    VStack {
+                                        Text("Yaw: \(isTransmitting ? transmittedYaw : 0, specifier: "%.2f")")
+                                        Slider(value: Binding(
+                                            get: { isTransmitting ? transmittedYaw : 0 },
+                                            set: { _ in }
+                                        ), in: -1...1)
+                                            .frame(width: 200) // Same width as the square
+                                            .disabled(true)
+                                    }
+                                    .padding()
+                                }
+
+                                // Right Column: Live Readouts and Controls
+                                VStack(spacing: 20) {
+                                    // Live Readouts
+                                    GroupBox(label:
+                                            Text("Live Readouts")
+                                        ) {
+                                        VStack {
+                                            Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
+                                            Text("Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
+                                            Text("Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
+                                        }
+                                    }
+
+                                    Button("Control") {
+                                        // No action here, as calibration and transmission will be handled in the gesture
+                                    }
+                                    .padding()
+                                    .background(Color.green)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                                    .disabled(!isConnected)
+                                    .onLongPressGesture(
+                                        minimumDuration: 0.1,
+                                        pressing: { isPressing in
+                                            if isPressing {
+                                                if !isTransmitting {
+                                                    motion.calibrate() // Calibrate once when the button is first pressed
+                                                    isTransmitting = true
+                                                    startTransmission()
+                                                }
+                                            } else {
+                                                stopTransmission() // Stop transmitting when the button is released
+                                            }
+                                        }
+                                    ) {}
+                                }
+                            }
+                        }
+                        .onAppear { 
+                            motion.startUpdates()
+                            startThrottleTransmission()
+                            startStatusUpdates()
+                        }
+                        .onDisappear { 
+                            motion.stopUpdates()
+                            stopThrottleTransmission()
+                            stopStatusUpdates()
                         }
                     }
-                ) {}
-
-                // IP Address Input
-                TextField("X-Plane IP Address", text: $ipAddress)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .keyboardType(.decimalPad)
-                    .focused($isTextFieldFocused) // Bind focus state
-                    .padding()
-
-                Button("Done") {
-                    isTextFieldFocused = false // Dismiss keyboard
                 }
                 .padding()
-                .background(Color.blue)
+                
+            } else {
+                // Message to rotate to landscape
+                VStack {
+                    Text("Please rotate your device to landscape orientation.")
+                        .multilineTextAlignment(.center)
+                        .padding()
+
+                    Image(systemName: "rectangle.portrait.rotate")
+                        .imageScale(.large)
+                        .padding()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.8))
                 .foregroundColor(.white)
-                .cornerRadius(10)
             }
         }
-        .padding()
-        .onAppear { 
-            motion.startUpdates()
-            startThrottleTransmission() // Start throttle transmission
-        }
-        .onDisappear { 
-            motion.stopUpdates()
-        }
+        .animation(.easeInOut, value: orientationObserver.isLandscape)
     }
 
     func startTransmission() {
-        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
+        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
             guard isTransmitting else {
                 timer.invalidate()
                 transmittedPitch = 0
@@ -319,7 +260,8 @@ struct ContentView: View {
                 return
             }
 
-            transmittedPitch = motion.getCalibratedPitch() // Inverted pitch
+            transmittedPitch = motion.getCalibratedPitch()
+            transmittedPitch = isPitchControlInverted ? -transmittedPitch : transmittedPitch;
             transmittedRoll = motion.getCalibratedRoll()
             transmittedYaw = isYawControlEnabled ? motion.getCalibratedYaw() : 0
 
@@ -332,17 +274,85 @@ struct ContentView: View {
         }
     }
 
-    func startThrottleTransmission() {
-        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-            client.sendThrottle(value: throttleValue, host: ipAddress)
-        }
-    }
-
     func stopTransmission() {
         isTransmitting = false
         transmittedPitch = 0
         transmittedRoll = 0
         transmittedYaw = 0
         client.sendControls(pitch: 0, roll: 0, yaw: 0, to: ipAddress) // Send zeroed controls
+    }
+
+    func startThrottleTransmission() {
+        throttleTimer?.invalidate() // Detén cualquier timer previo
+        throttleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            client.sendThrottle(value: throttleValue, host: ipAddress)
+        }
+    }
+    
+    func stopThrottleTransmission() {
+        throttleTimer?.invalidate()
+        throttleTimer = nil
+    }
+
+    func startBrakesStatusListener() {
+        do {
+            let parameters = NWParameters.udp
+            let listener = try NWListener(using: parameters, on: 49001)
+            brakesListener = listener
+            listener.newConnectionHandler = { connection in
+                connection.start(queue: .global())
+                receiveBrakesStatus(connection: connection)
+            }
+            listener.start(queue: .global())
+        } catch {
+            print("Error initializing brakes listener: \(error)")
+        }
+    }
+
+    func receiveBrakesStatus(connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { data, _, _,   _ in
+            if let data = data, data.count >= 13 {
+                let header = String(data: data.prefix(5), encoding: .utf8)
+                if header == "DATA\0" {
+                    let indexData = data.subdata(in: 5..<9)
+                    let index = indexData.withUnsafeBytes { $0.load(as: Int32.self) }
+                    if index == 14 {
+                        // Brakes value
+                        let brakeValueData = data.subdata(in: 9..<13)
+                        let brakeValue = brakeValueData.withUnsafeBytes { $0.load(as: Float.self) }
+                        DispatchQueue.main.async {
+                            brakesActive = (brakeValue > 0.5)
+                        }
+                    } else if index == 17 {
+                        // Weight on wheels value
+                        let wowValueData = data.subdata(in: 9..<13)
+                        let weightOnWheels = wowValueData.withUnsafeBytes { $0.load(as: Float.self) }
+                        DispatchQueue.main.async {
+                            isReverseThrustEnabled = (weightOnWheels > 0.5)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func startStatusUpdates() {
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            client.ping(host: ipAddress) { alive in
+                DispatchQueue.main.async {
+                    isConnected = alive
+                }
+            }
+            client.requestBrakesStatus(host: ipAddress)
+        }
+    }
+
+    func stopStatusUpdates() {
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = nil
+        brakesListener?.cancel()
+        brakesListener = nil
+        isConnected = false
     }
 }
