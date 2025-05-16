@@ -30,10 +30,10 @@ struct ContentView: View {
     @State private var transmittedYaw: Float = 0
     @State private var throttleValue: Float = 0.0 // Default throttle value
 
-    @State private var brakesActive: Bool = false
-    @State private var reversersActive: Bool = false
-
     @State private var isReverseThrustEnabled = false
+    @State private var isBrakesActive = false
+    @State private var isAutothrottleActive = false
+    @State private var isAutopilotActive = false
 
     @State private var brakesListener: NWListener?
 
@@ -116,6 +116,7 @@ struct ContentView: View {
                             }
                             
                             HStack {
+                                
                                 // Left Column: Throttle Slider
                                 VStack {
                                     Text("Throttle: \(throttleValue, specifier: "%.2f")")
@@ -124,65 +125,48 @@ struct ContentView: View {
                                         .frame(height: 200) // Adjust height for vertical slider
                                         .onChange(of: throttleValue) { newValue in
                                             client.sendThrottle(value: newValue, host: ipAddress)
-                                        }
-                                    
-                                    HStack {
-                                        Button("Reversers") {
-                                            reversersActive.toggle()
-                                            client.sendReversers(host: ipAddress, status: reversersActive)
-                                        }
-                                        .padding()
-                                        .background(reversersActive ? Color.red : Color.green)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(10)
-
-                                        Button("Brakes") {
-                                            brakesActive.toggle()
-                                            client.sendBrakes(host: ipAddress, status: brakesActive)
-                                        }
-                                        .padding()
-                                        .background(brakesActive ? Color.red : Color.green)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(10)
                                     }
                                 }
-                                .padding()
 
                                 // Center Column: Indicators and Controls
-                                VStack(spacing: 20) {
+                                VStack {
                                     // Roll and Pitch Box
                                     ZStack {
                                         Rectangle()
                                             .stroke(Color.gray, lineWidth: 2)
-                                            .frame(width: 200, height: 200)
+                                            .frame(width: 150, height: 150)
 
                                         Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 20, height: 20)
+                                            .fill(Color.blue)
+                                            .frame(width: 10, height: 10)
                                             .offset(
-                                                x: CGFloat(isTransmitting ? transmittedRoll * 100 : 0),
-                                                y: CGFloat(isTransmitting ? transmittedPitch * 100 : 0)
+                                                x: CGFloat(isTransmitting ? transmittedRoll * 75 : 0),
+                                                y: CGFloat(isTransmitting ? transmittedPitch * 75 : 0)
                                             )
                                     }
 
                                     // Yaw Slider
-                                    VStack {
-                                        Text("Yaw: \(isTransmitting ? transmittedYaw : 0, specifier: "%.2f")")
-                                        Slider(value: Binding(
-                                            get: { isTransmitting ? transmittedYaw : 0 },
-                                            set: { _ in }
-                                        ), in: -1...1)
-                                            .frame(width: 200) // Same width as the square
-                                            .disabled(true)
+                                    
+                                    ZStack {
+                                        Rectangle()
+                                            .stroke(Color.gray, lineWidth: 2)
+                                            .frame(width: 150, height: 20)
+
+                                        Circle()
+                                            .fill(Color.blue)
+                                            .frame(width: 10, height: 10)
+                                            .offset(
+                                                x: CGFloat(isTransmitting ? transmittedYaw * 75 : 0),
+                                            )
                                     }
-                                    .padding()
                                 }
 
                                 // Right Column: Live Readouts and Controls
-                                VStack(spacing: 20) {
+                                VStack {
                                     // Live Readouts
                                     GroupBox(label:
                                             Text("Live Readouts")
+                                                .frame(alignment:.center)
                                         ) {
                                         VStack {
                                             Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
@@ -195,7 +179,7 @@ struct ContentView: View {
                                         // No action here, as calibration and transmission will be handled in the gesture
                                     }
                                     .padding()
-                                    .background(Color.green)
+                                    .background(isTransmitting ? Color.blue : Color.green)
                                     .foregroundColor(.white)
                                     .cornerRadius(10)
                                     .disabled(!isConnected)
@@ -214,6 +198,40 @@ struct ContentView: View {
                                         }
                                     ) {}
                                 }
+                            }
+                            
+                            HStack {
+                                Toggle("Reversers", isOn: $isReverseThrustEnabled)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.2))
+                                    .cornerRadius(10)
+                                    .onChange(of: isReverseThrustEnabled) { newValue in
+                                        client.sendReversers(host: ipAddress, status: newValue)
+                                    }
+
+                                Toggle("Brakes", isOn: $isBrakesActive)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.2))
+                                    .cornerRadius(10)
+                                    .onChange(of: isBrakesActive) { newValue in
+                                        client.sendBrakes(host: ipAddress, status: newValue)
+                                    }
+                                
+                                Toggle("Autothrottle", isOn: $isAutothrottleActive)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.2))
+                                    .cornerRadius(10)
+                                    .onChange(of: isAutothrottleActive) { newValue in
+                                        client.sendAutothrottle(host: ipAddress, status: newValue)
+                                    }
+                                
+                                Toggle("Autopilot", isOn: $isAutopilotActive)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.2))
+                                    .cornerRadius(10)
+                                    .onChange(of: isAutopilotActive) { newValue in
+                                        client.sendAutopilot(host: ipAddress, status: newValue)
+                                    }
                             }
                         }
                         .onAppear { 
@@ -321,7 +339,7 @@ struct ContentView: View {
                         let brakeValueData = data.subdata(in: 9..<13)
                         let brakeValue = brakeValueData.withUnsafeBytes { $0.load(as: Float.self) }
                         DispatchQueue.main.async {
-                            brakesActive = (brakeValue > 0.5)
+                            isBrakesActive = (brakeValue > 0.5)
                         }
                     } else if index == 17 {
                         // Weight on wheels value

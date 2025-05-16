@@ -61,6 +61,56 @@ class XPlaneUDPClient {
             connection.cancel()
         })
     }
+
+    func sendAutothrottle(host: String, port: UInt16 = 49000, status: Bool) {
+        guard let ip = IPv4Address(host) else { return }
+
+        let connection = NWConnection(host: NWEndpoint.Host(ip.debugDescription),
+                                      port: NWEndpoint.Port(rawValue: port)!,
+                                      using: .udp)
+        connection.start(queue: .global())
+
+        var packet = Data()
+        packet.append(contentsOf: "DATA\0".utf8)
+
+        var index: Int32 = 38 // Autothrottle data index
+        packet.append(Data(bytes: &index, count: 4))
+
+        let value: Float = status ? 1.0 : 0.0
+        let values = [value] + Array(repeating: Float(0), count: 7)
+        for var v in values {
+            packet.append(Data(bytes: &v, count: 4))
+        }
+
+        connection.send(content: packet, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
+
+    func sendAutopilot(host: String, port: UInt16 = 49000, status: Bool) {
+        guard let ip = IPv4Address(host) else { return }
+
+        let connection = NWConnection(host: NWEndpoint.Host(ip.debugDescription),
+                                      port: NWEndpoint.Port(rawValue: port)!,
+                                      using: .udp)
+        connection.start(queue: .global())
+
+        var packet = Data()
+        packet.append(contentsOf: "DATA\0".utf8)
+
+        var index: Int32 = 13 // Autopilot data index
+        packet.append(Data(bytes: &index, count: 4))
+
+        let value: Float = status ? 1.0 : 0.0
+        let values = [value] + Array(repeating: Float(0), count: 7)
+        for var v in values {
+            packet.append(Data(bytes: &v, count: 4))
+        }
+
+        connection.send(content: packet, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
     
     func sendBrakes(host: String, port: UInt16 = 49000, status: Bool) {
         guard let ip = IPv4Address(host) else { return }
@@ -89,24 +139,24 @@ class XPlaneUDPClient {
 
     func sendReversers(host: String, port: UInt16 = 49000, status: Bool) {
         guard let ip = IPv4Address(host) else { return }
-    
+
         let connection = NWConnection(host: NWEndpoint.Host(ip.debugDescription),
                                       port: NWEndpoint.Port(rawValue: port)!,
                                       using: .udp)
         connection.start(queue: .global())
-    
+
         var packet = Data()
         packet.append(contentsOf: "DATA\0".utf8)
-    
+
         var index: Int32 = 12 // Reversers data index
         packet.append(Data(bytes: &index, count: 4))
-    
+
         let reverserValue: Float = status ? 1.0 : 0.0
         let values = [reverserValue, reverserValue, reverserValue, reverserValue] + Array(repeating:    Float(0), count: 4)
         for var v in values {
             packet.append(Data(bytes: &v, count: 4))
         }
-    
+
         connection.send(content: packet, completion: .contentProcessed { _ in
             connection.cancel()
         })
