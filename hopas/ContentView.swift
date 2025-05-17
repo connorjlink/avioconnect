@@ -49,12 +49,12 @@ struct ContentView: View {
                     if !isOpened {
                         ZStack(alignment: .topTrailing) {
                             VStack {
-                                Text("Detected X-Plane Instances")
+                                Text("Detected Simulator Instances")
                                     .font(.headline)
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.top, 16)
                     
-                                Text("Tap to connect to an instance")
+                                Text("Tap to automatically connect")
                                     .font(.subheadline)
                                     .foregroundColor(.gray)
                     
@@ -89,7 +89,7 @@ struct ContentView: View {
                         VStack(spacing: 10) {
                             HStack {
                                 // Connection Indicator
-                                Text("X-Plane Controller — Host: \(ipAddress)")
+                                Text("Host: \(ipAddress)")
                                 
                                 Circle()
                                     .fill(isConnected ? Color.green : Color.red)
@@ -301,7 +301,7 @@ struct ContentView: View {
     }
 
     func startThrottleTransmission() {
-        throttleTimer?.invalidate() // Detén cualquier timer previo
+        throttleTimer?.invalidate()
         throttleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             client.sendThrottle(value: throttleValue, host: ipAddress)
         }
@@ -312,22 +312,22 @@ struct ContentView: View {
         throttleTimer = nil
     }
 
-    func startBrakesStatusListener() {
+    func startStatusListener() {
         do {
             let parameters = NWParameters.udp
             let listener = try NWListener(using: parameters, on: 49001)
             brakesListener = listener
             listener.newConnectionHandler = { connection in
                 connection.start(queue: .global())
-                receiveBrakesStatus(connection: connection)
+                receiveStatus(connection: connection)
             }
             listener.start(queue: .global())
         } catch {
-            print("Error initializing brakes listener: \(error)")
+            print("Error initializing status listener: \(error)")
         }
     }
 
-    func receiveBrakesStatus(connection: NWConnection) {
+    func receiveStatus(connection: NWConnection) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { data, _, _,   _ in
             if let data = data, data.count >= 13 {
                 let header = String(data: data.prefix(5), encoding: .utf8)
@@ -362,7 +362,8 @@ struct ContentView: View {
                     isConnected = alive
                 }
             }
-            client.requestBrakesStatus(host: ipAddress)
+            client.requestStatus(host: ipAddress, index: 14)
+            client.requestStatus(host: ipAddress, index: 17)
         }
     }
 

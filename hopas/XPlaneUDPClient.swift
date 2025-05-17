@@ -162,7 +162,7 @@ class XPlaneUDPClient {
         })
     }
 
-    func requestBrakesStatus(host: String, port: UInt16 = 49000) {
+    func requestStatus(host: String, port: UInt16 = 49000, index: Int32) {
         guard let ip = IPv4Address(host) else { return }
 
         let connection = NWConnection(host: NWEndpoint.Host(ip.debugDescription),
@@ -172,7 +172,7 @@ class XPlaneUDPClient {
 
         var packet = Data()
         packet.append(contentsOf: "DREQ\0".utf8)
-        var index: Int32 = 14
+        var index = index
         packet.append(Data(bytes: &index, count: 4))
 
         connection.send(content: packet, completion: .contentProcessed { _ in
