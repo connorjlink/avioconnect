@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Binding var isYawControlEnabled: Bool
     @Binding var isPitchControlInverted: Bool
     @Binding var ipAddress: String
+    @Binding var xPlaneUDPClient: XPlaneUDPClient
     @Binding var transmitRate: Int
     
     @Binding var maxRollOrientation: Float
@@ -98,6 +99,7 @@ struct SettingsView: View {
             .onTapGesture {
                 // ugly hack to close the decimal-pad keyboard whenever the user taps outside of it
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                xPlaneUDPClient = XPlaneUDPClient(host: ipAddress, port: 49000)
             }
         }
     }

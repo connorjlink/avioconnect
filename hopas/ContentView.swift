@@ -5,8 +5,8 @@ import Combine
 // MARK: - ContentView
 struct ContentView: View {
     @StateObject private var motion = MotionManager()
-    private let client = XPlaneUDPClient()
-
+    @State private var client = XPlaneUDPClient(host: "192.168.1.21", port: 49000)
+    
     @StateObject private var beaconListener = XPlaneBeaconListener()
     @State private var selectedInstance: XPlaneBeaconListener.XPlaneInstance?
 
@@ -24,7 +24,7 @@ struct ContentView: View {
     @State private var maxRollOrientation: Float = 1.0
     @State private var maxYawOrientation: Float = 1.0
     @State private var maxPitchOrientation: Float = 1.0
-    @State private var ipAddress: String = "192.168.1.19"
+    @State private var ipAddress: String = "192.168.1.21"
     @State private var transmittedPitch: Float = 0
     @State private var transmittedRoll: Float = 0
     @State private var transmittedYaw: Float = 0
@@ -107,6 +107,7 @@ struct ContentView: View {
                                         isYawControlEnabled: $isYawControlEnabled,
                                         isPitchControlInverted: $isPitchControlInverted,
                                         ipAddress: $ipAddress,
+                                        xPlaneUDPClient: $client,
                                         transmitRate: $transmitRate,
                                         maxRollOrientation: $maxRollOrientation,
                                         maxYawOrientation: $maxYawOrientation,
@@ -124,7 +125,7 @@ struct ContentView: View {
                                         .rotationEffect(.degrees(-90)) // Rotate slider vertically
                                         .frame(height: 200) // Adjust height for vertical slider
                                         .onChange(of: throttleValue) { newValue in
-                                            client.sendThrottle(value: newValue, host: ipAddress)
+                                            client.sendThrottle(value: newValue)
                                     }
                                 }
 
@@ -206,7 +207,7 @@ struct ContentView: View {
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
                                     .onChange(of: isReverseThrustEnabled) { newValue in
-                                        client.sendReversers(host: ipAddress, status: newValue)
+                                        client.sendReversers(status: newValue)
                                     }
 
                                 Toggle("Brakes", isOn: $isBrakesActive)
@@ -214,7 +215,7 @@ struct ContentView: View {
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
                                     .onChange(of: isBrakesActive) { newValue in
-                                        client.sendBrakes(host: ipAddress, status: newValue)
+                                        client.sendBrakes(status: newValue)
                                     }
                                 
                                 Toggle("Autothrottle", isOn: $isAutothrottleActive)
@@ -222,7 +223,7 @@ struct ContentView: View {
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
                                     .onChange(of: isAutothrottleActive) { newValue in
-                                        client.sendAutothrottle(host: ipAddress, status: newValue)
+                                        client.sendAutothrottle(status: newValue)
                                     }
                                 
                                 Toggle("Autopilot", isOn: $isAutopilotActive)
@@ -230,7 +231,7 @@ struct ContentView: View {
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
                                     .onChange(of: isAutopilotActive) { newValue in
-                                        client.sendAutopilot(host: ipAddress, status: newValue)
+                                        client.sendAutopilot(status: newValue)
                                     }
                             }
                         }
@@ -274,7 +275,7 @@ struct ContentView: View {
                 transmittedPitch = 0
                 transmittedRoll = 0
                 transmittedYaw = 0
-                client.sendControls(pitch: 0, roll: 0, yaw: 0, to: ipAddress)
+                client.sendControls(pitch: 0, roll: 0, yaw: 0)
                 return
             }
 
@@ -287,7 +288,6 @@ struct ContentView: View {
                 pitch: transmittedPitch,
                 roll: transmittedRoll,
                 yaw: transmittedYaw,
-                to: ipAddress
             )
         }
     }
@@ -297,13 +297,13 @@ struct ContentView: View {
         transmittedPitch = 0
         transmittedRoll = 0
         transmittedYaw = 0
-        client.sendControls(pitch: 0, roll: 0, yaw: 0, to: ipAddress) // Send zeroed controls
+        client.sendControls(pitch: 0, roll: 0, yaw: 0) // Send zeroed controls
     }
 
     func startThrottleTransmission() {
         throttleTimer?.invalidate()
         throttleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            client.sendThrottle(value: throttleValue, host: ipAddress)
+            client.sendThrottle(value: throttleValue)
         }
     }
     
@@ -357,13 +357,13 @@ struct ContentView: View {
     func startStatusUpdates() {
         statusUpdateTimer?.invalidate()
         statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            client.ping(host: ipAddress) { alive in
+            client.ping() { alive in
                 DispatchQueue.main.async {
                     isConnected = alive
                 }
             }
-            client.requestStatus(host: ipAddress, index: 14)
-            client.requestStatus(host: ipAddress, index: 17)
+            client.requestStatus(index: 14)
+            client.requestStatus(index: 17)
         }
     }
 
