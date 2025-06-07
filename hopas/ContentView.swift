@@ -1,6 +1,57 @@
 import SwiftUI
 import Network
 import Combine
+import Foundation
+
+/*
+ struct XPlaneStatus {
+     var reverseThrust: [Float]? // Array for each engine
+     var brakes: Float?
+     var autothrottleEngaged: Float?
+     var autopilotEngaged: Float?
+     var weightOnWheels: [Float]? // Array for each gear
+ }
+
+ func parseXPlaneDataPacket(_ data: Data) -> XPlaneStatus? {
+     guard data.count >= 36 else { return nil }
+     guard let header = String(data: data.prefix(5), encoding: .utf8), header == "DATA\0" else { return nil }
+     
+     let index = data.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: Int32.self) }
+     var status = XPlaneStatus()
+     
+     switch index {
+     case 12: // ENGINES (reverse thrust)
+         // 8 floats, 9..41
+         let values = (0..<8).map { i in
+             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
+         }
+         status.reverseThrust = values
+     case 13: // AUTOPILOT/AUTOTHROTTLE
+         // 8 floats, 9..41
+         let values = (0..<8).map { i in
+             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
+         }
+         status.autothrottleEngaged = values[0] // autothrottle_arm
+         status.autopilotEngaged = values[1]    // autopilot_mode
+     case 14: // BRAKES
+         // 8 floats, 9..41
+         let values = (0..<8).map { i in
+             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
+         }
+         status.brakes = values[0] // main brake ratio or parkbrake
+     case 17: // GEAR (weight on wheels)
+         // 8 floats, 9..41
+         let values = (0..<8).map { i in
+             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
+         }
+         status.weightOnWheels = values
+     default:
+         return nil
+     }
+     return status
+ }
+ 
+ */
 
 // MARK: - ContentView
 struct ContentView: View {
@@ -31,16 +82,51 @@ struct ContentView: View {
     @State private var throttleValue: Float = 0.0 // Default throttle value
 
     @State private var isReverseThrustEnabled = false
-    @State private var isBrakesActive = false
-    @State private var isAutothrottleActive = false
-    @State private var isAutopilotActive = false
-
-    @State private var brakesListener: NWListener?
+    @State private var isBrakesEnabled = false
+    @State private var isAutothrottleEnabled = false
+    @State private var isAutopilotEnabled = false
+    
+    @State private var hasReceivedReverseThrustStatus = false
+    @State private var hasReceivedBrakesStatus = false
+    @State private var hasReceivedAutothrottleStatus = false
+    @State private var hasReceivedAutopilotStatus = false
 
     @State private var isShowingSettings = false
 
     @FocusState private var isTextFieldFocused: Bool // To manage keyboard focus
 
+    // must be of Double type for timer functions
+    func computeReprate() -> Double {
+        return 1.0 / Double(transmitRate)
+    }
+
+    func getLocalIPAddress() -> String? {
+        var address: String?
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        if getifaddrs(&ifaddr) == 0 {
+            var ptr = ifaddr
+            while ptr != nil {
+                defer { ptr = ptr?.pointee.ifa_next }
+                guard let interface = ptr?.pointee else { continue }
+                let addrFamily = interface.ifa_addr.pointee.sa_family
+                if addrFamily == UInt8(AF_INET) {
+                    let name = String(cString: interface.ifa_name)
+                    if name == "en0" || name == "en1" { // Wi-Fi or Ethernet
+                        var addr = interface.ifa_addr.pointee
+                        var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                        getnameinfo(&addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+                                    &hostname, socklen_t(hostname.count),
+                                    nil, socklen_t(0), NI_NUMERICHOST)
+                        address = String(cString: hostname)
+                        break
+                    }
+                }
+            }
+            freeifaddrs(ifaddr)
+        }
+        return address
+    }
+    
     var body: some View {
         ZStack {
             if orientationObserver.isLandscape {
@@ -89,13 +175,22 @@ struct ContentView: View {
                         VStack(spacing: 10) {
                             HStack {
                                 // Connection Indicator
-                                Text("Host: \(ipAddress)")
+                                VStack {
+                                    Text("My IP: \(getLocalIPAddress() ?? "Unknown")")
+                                    Text("X-Plane IP: \(ipAddress)")
+                                }
                                 
                                 Circle()
                                     .fill(isConnected ? Color.green : Color.red)
                                     .frame(width: 10, height: 10)
                                 
                                 Spacer()
+                                
+                                if (!hasReceivedBrakesStatus || !hasReceivedReverseThrustStatus || !hasReceivedAutothrottleStatus || !hasReceivedAutopilotStatus) {
+                                    Text("One or more statuses has not yet been received.\nPlease enable the respective data outputs in X-Plane.")
+                                        .foregroundColor(.gray)
+                                        .font(.caption)
+                                }
 
                                 Button(action: { isShowingSettings = true }) {
                                     Image(systemName: "gearshape")
@@ -121,12 +216,20 @@ struct ContentView: View {
                                 // Left Column: Throttle Slider
                                 VStack {
                                     Text("Throttle: \(throttleValue, specifier: "%.2f")")
-                                    Slider(value: $throttleValue, in: 0...1)
-                                        .rotationEffect(.degrees(-90)) // Rotate slider vertically
-                                        .frame(height: 200) // Adjust height for vertical slider
-                                        .onChange(of: throttleValue) { newValue in
-                                            client.sendThrottle(value: newValue)
-                                    }
+                                    GeometryReader { geometry in
+                                            ZStack {
+                                                Slider(value: $throttleValue, in: 0...1)
+                                                    .frame(width: geometry.size.width - 50) // thickness matches column width
+                                                    .rotationEffect(.degrees(-90))
+                                                    .disabled(isAutothrottleEnabled)
+                                                    .onChange(of: throttleValue) { newValue in
+                                                        client.sendThrottle(value: newValue)
+                                                        throttleValue = newValue
+                                                    }
+                                            }
+                                            .frame(height: 150) // visual height after rotation
+                                        }
+                                        .frame(height: 150) // constrain overall height
                                 }
 
                                 // Center Column: Indicators and Controls
@@ -167,7 +270,6 @@ struct ContentView: View {
                                     // Live Readouts
                                     GroupBox(label:
                                             Text("Live Readouts")
-                                                .frame(alignment:.center)
                                         ) {
                                         VStack {
                                             Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
@@ -206,37 +308,41 @@ struct ContentView: View {
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
+                                    .disabled(!hasReceivedReverseThrustStatus)
                                     .onChange(of: isReverseThrustEnabled) { newValue in
                                         client.sendReversers(status: newValue)
                                     }
 
-                                Toggle("Brakes", isOn: $isBrakesActive)
+                                Toggle("Brakes", isOn: $isBrakesEnabled)
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
-                                    .onChange(of: isBrakesActive) { newValue in
+                                    .disabled(!hasReceivedBrakesStatus)
+                                    .onChange(of: isBrakesEnabled) { newValue in
                                         client.sendBrakes(status: newValue)
                                     }
                                 
-                                Toggle("Autothrottle", isOn: $isAutothrottleActive)
+                                Toggle("Autothrottle", isOn: $isAutothrottleEnabled)
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
-                                    .onChange(of: isAutothrottleActive) { newValue in
+                                    .disabled(!hasReceivedAutothrottleStatus)
+                                    .onChange(of: isAutothrottleEnabled) { newValue in
                                         client.sendAutothrottle(status: newValue)
                                     }
                                 
-                                Toggle("Autopilot", isOn: $isAutopilotActive)
+                                Toggle("Autopilot", isOn: $isAutopilotEnabled)
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
-                                    .onChange(of: isAutopilotActive) { newValue in
+                                    .disabled(!hasReceivedAutopilotStatus)
+                                    .onChange(of: isAutopilotEnabled) { newValue in
                                         client.sendAutopilot(status: newValue)
                                     }
                             }
                         }
                         .onAppear { 
-                            motion.startUpdates()
+                            motion.startUpdates(interval: computeReprate())
                             startThrottleTransmission()
                             startStatusUpdates()
                         }
@@ -269,7 +375,7 @@ struct ContentView: View {
     }
 
     func startTransmission() {
-        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
+        Timer.scheduledTimer(withTimeInterval: computeReprate(), repeats: true) { timer in
             guard isTransmitting else {
                 timer.invalidate()
                 transmittedPitch = 0
@@ -302,7 +408,7 @@ struct ContentView: View {
 
     func startThrottleTransmission() {
         throttleTimer?.invalidate()
-        throttleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+        throttleTimer = Timer.scheduledTimer(withTimeInterval: computeReprate(), repeats: true) { _ in
             client.sendThrottle(value: throttleValue)
         }
     }
@@ -316,7 +422,6 @@ struct ContentView: View {
         do {
             let parameters = NWParameters.udp
             let listener = try NWListener(using: parameters, on: 49001)
-            brakesListener = listener
             listener.newConnectionHandler = { connection in
                 connection.start(queue: .global())
                 receiveStatus(connection: connection)
@@ -339,8 +444,9 @@ struct ContentView: View {
                         let brakeValueData = data.subdata(in: 9..<13)
                         let brakeValue = brakeValueData.withUnsafeBytes { $0.load(as: Float.self) }
                         DispatchQueue.main.async {
-                            isBrakesActive = (brakeValue > 0.5)
+                            isBrakesEnabled = (brakeValue > 0.5)
                         }
+                        hasReceivedBrakesStatus = true
                     } else if index == 17 {
                         // Weight on wheels value
                         let wowValueData = data.subdata(in: 9..<13)
@@ -348,6 +454,7 @@ struct ContentView: View {
                         DispatchQueue.main.async {
                             isReverseThrustEnabled = (weightOnWheels > 0.5)
                         }
+                        hasReceivedReverseThrustStatus = true
                     }
                 }
             }
@@ -356,22 +463,22 @@ struct ContentView: View {
 
     func startStatusUpdates() {
         statusUpdateTimer?.invalidate()
-        statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: computeReprate(), repeats: true) { _ in
             client.ping() { alive in
                 DispatchQueue.main.async {
                     isConnected = alive
                 }
             }
-            client.requestStatus(index: 14)
-            client.requestStatus(index: 17)
+            client.requestStatus(index: 12) // engines (for reverse thrust)
+            client.requestStatus(index: 13) // automation (for autothrottle and autopilot)
+            client.requestStatus(index: 14) // brakes
+            client.requestStatus(index: 17) // gear (for weight-on-wheels)
         }
     }
 
     func stopStatusUpdates() {
         statusUpdateTimer?.invalidate()
         statusUpdateTimer = nil
-        brakesListener?.cancel()
-        brakesListener = nil
         isConnected = false
     }
 }

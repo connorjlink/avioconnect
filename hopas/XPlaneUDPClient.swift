@@ -38,7 +38,6 @@ class XPlaneUDPClient {
         }
 
         connection?.send(content: packet, completion: .contentProcessed { _ in
-            self.connection?.cancel()
         })
     }
 
@@ -55,7 +54,6 @@ class XPlaneUDPClient {
         }
 
         connection?.send(content: packet, completion: .contentProcessed { _ in
-           self.connection?.cancel()
         })
     }
 
@@ -73,7 +71,6 @@ class XPlaneUDPClient {
         }
 
         connection?.send(content: packet, completion: .contentProcessed { _ in
-            self.connection?.cancel()
         })
     }
 
@@ -91,7 +88,6 @@ class XPlaneUDPClient {
         }
 
         connection?.send(content: packet, completion: .contentProcessed { _ in
-            self.connection?.cancel()
         })
     }
 
@@ -109,7 +105,6 @@ class XPlaneUDPClient {
         }
 
         connection?.send(content: packet, completion: .contentProcessed { _ in
-            self.connection?.cancel()
         })
     }
 
@@ -127,7 +122,6 @@ class XPlaneUDPClient {
         }
 
         connection?.send(content: packet, completion: .contentProcessed { _ in
-            self.connection?.cancel()
         })
     }
 
@@ -148,9 +142,8 @@ class XPlaneUDPClient {
 
         connection?.send(content: packet, completion: .contentProcessed { _ in })
         connection?.receive(minimumIncompleteLength: 1, maximumLength: 1024) { data, _, _, _ in
-            let isAlive = (data != nil && !data!.isEmpty)
+            let isAlive = (data != nil)
             completion(isAlive)
-            self.connection?.cancel()
         }
     }
 }

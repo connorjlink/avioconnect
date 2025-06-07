@@ -16,10 +16,10 @@ class MotionManager: ObservableObject {
 
     private var referenceAttitude: CMAttitude?
 
-    func startUpdates() {
+    func startUpdates(interval: Double) {
         guard motionManager.isDeviceMotionAvailable else { return }
 
-        motionManager.deviceMotionUpdateInterval = 0.05
+        motionManager.deviceMotionUpdateInterval = interval
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self = self, let data = motion else { return }
 
