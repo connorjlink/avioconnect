@@ -3,7 +3,7 @@ A play on HOTAS—"hands-on-phone-and-stick". Okay, maybe the acronym is terribl
 
 ## Planned Features
 - Improved UI layout and better compatibility with iPad devices
-- More aircraft controls, including autopilot and brakes toggles
+- ~~More aircraft controls, including autopilot and brakes toggles~~
 - Some kind of head tracking implementation?
 
 ## Known Issues
