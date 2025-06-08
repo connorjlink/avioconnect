@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VariablesViewState
+   version = "1.0">
+   <ContextStates>
+      <ContextState
+         contextName = "XPlaneUDPClient.sendControls(pitch:roll:yaw:):XPlaneUDPClient.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "connection.state">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "XPlaneBeaconListener.parseBeaconData(_:):XPlaneBeaconListener.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "data[0...45].reduce(&quot;&quot;, combine: { $0 + String(format: &quot;%c&quot;, $1)})">
+            </PersistentString>
+            <PersistentString
+               value = "data[0...45].map{ String(Character(UnicodeScalar($0))) }.joined(separator: &quot;.&quot;)">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+      <ContextState
+         contextName = "closure #1 in ContentView.startStatusUpdates():ContentView.swift">
+         <PersistentStrings>
+            <PersistentString
+               value = "alive">
+            </PersistentString>
+            <PersistentString
+               value = "isConnected">
+            </PersistentString>
+         </PersistentStrings>
+      </ContextState>
+   </ContextStates>
+</VariablesViewState>

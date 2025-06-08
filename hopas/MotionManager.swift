@@ -13,6 +13,10 @@ class MotionManager: ObservableObject {
     @Published var pitch: Float = 0
     @Published var roll: Float = 0
     @Published var yaw: Float = 0
+    
+    var maxPitch: Int = 90
+    var maxRoll: Int = 90
+    var maxYaw: Int = 90
 
     private var referenceAttitude: CMAttitude?
 
@@ -37,7 +41,11 @@ class MotionManager: ObservableObject {
         motionManager.stopDeviceMotionUpdates()
     }
 
-    func calibrate() {
+    func calibrate(newMaxPitch: Int, newMaxRoll: Int, newMaxYaw: Int) {
+        maxPitch = newMaxPitch
+        maxRoll = newMaxRoll
+        maxYaw = newMaxYaw
+        
         if let currentAttitude = motionManager.deviceMotion?.attitude {
             referenceAttitude = currentAttitude
         }
@@ -45,15 +53,19 @@ class MotionManager: ObservableObject {
 
     // clamp to valid values since the device CAN output more than [-1, 1]
     
+    private func getClamped(angle: Float) -> Float {
+        return -max(-1.0, min(angle, 1.0))
+    }
+    
     func getCalibratedPitch() -> Float {
-        return max(-1.0, min(pitch, 1.0))
+        return getClamped(angle: pitch * (90.0 / Float(maxPitch)))
     }
-
+    
     func getCalibratedRoll() -> Float {
-        return -max(-1.0, min(roll, 1.0))
+        return getClamped(angle: roll * (90.0 / Float(maxRoll)))
     }
-
+    
     func getCalibratedYaw() -> Float {
-        return -max(-1.0, min(yaw, 1.0))
+        return getClamped(angle: yaw * (90.0 / Float(maxYaw)))
     }
 }

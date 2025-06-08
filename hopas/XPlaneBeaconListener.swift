@@ -15,7 +15,7 @@ class XPlaneBeaconListener: ObservableObject {
     struct XPlaneInstance: Identifiable {
         let id = UUID()
         let ipAddress: String
-        let port: UInt16
+        let port: UInt16 = 49000
     }
 
     func startListening() {
@@ -40,26 +40,26 @@ class XPlaneBeaconListener: ObservableObject {
         connection.start(queue: .main)
         connection.receiveMessage { [weak self] data, _, _, _ in
             guard let self = self, let data = data else { return }
-            self.parseBeaconData(data)
+            
+            // if possible, try to extract the IP address and port from the connection
+            if case let .hostPort(host, port) = connection.endpoint {
+                let ipAddress = host.debugDescription.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                let portValue = port.rawValue
+                self.parseBeaconData(data, ipAddress: ipAddress, port: portValue)
+            }
         }
     }
 
-    private func parseBeaconData(_ data: Data) {
-        guard data.count >= 11 else { return } // At least header (5) + IP (4) + Port (2)
+    private func parseBeaconData(_ data: Data, ipAddress: String, port: UInt16) {
+        // verify that at least a header is present
+        guard data.count >= 5 else { return }
         
         let header = String(data: data.prefix(5), encoding: .utf8)
         guard header == "BECN\0" else { return }
 
-        // Extract IP address (bytes 5...8)
-        let ipBytes = data[5...8]
-        let ipAddress = ipBytes.map { String($0) }.joined(separator: ".")
-
-        // Extract port (bytes 9 and 10, big-endian)
-        let port = (UInt16(data[9]) << 8) | UInt16(data[10])
-
         DispatchQueue.main.async {
-            let instance = XPlaneInstance(ipAddress: ipAddress, port: port)
-            if !self.detectedInstances.contains(where: { $0.ipAddress == ipAddress && $0.port == port }) {
+            let instance = XPlaneInstance(ipAddress: ipAddress)
+            if !self.detectedInstances.contains(where: { $0.ipAddress == ipAddress }) {
                 self.detectedInstances.append(instance)
             }
         }

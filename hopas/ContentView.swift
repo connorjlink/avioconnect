@@ -67,15 +67,15 @@ struct ContentView: View {
     @State private var throttleTimer: Timer?
     
     @State private var isTransmitting = false
-    @State private var isConnected = false
     @State private var isOpened = false
     @State private var isYawControlEnabled = true
     @State private var isPitchControlInverted = false
     @State private var transmitRate: Int = 10
-    @State private var maxRollOrientation: Float = 1.0
-    @State private var maxYawOrientation: Float = 1.0
-    @State private var maxPitchOrientation: Float = 1.0
-    @State private var ipAddress: String = "192.168.1.21"
+    @State private var maxRollOrientation: Int = 90
+    @State private var maxYawOrientation: Int = 90
+    @State private var maxPitchOrientation: Int = 90
+    @State private var ipAddress: String = "192.168.1.19"
+    @State private var port: String = "49000"
     @State private var transmittedPitch: Float = 0
     @State private var transmittedRoll: Float = 0
     @State private var transmittedYaw: Float = 0
@@ -149,8 +149,9 @@ struct ContentView: View {
                                         selectedInstance = instance
                                         isOpened = true
                                         ipAddress = instance.ipAddress
+                                        client = XPlaneUDPClient(host: ipAddress, port: UInt16(port) ?? 49000)
                                     }) {
-                                        Text("\(instance.ipAddress):\(instance.port)")
+                                        Text("\(instance.ipAddress):\(String(instance.port))")
                                     }
                                 }
                             }
@@ -175,13 +176,9 @@ struct ContentView: View {
                         VStack(spacing: 10) {
                             HStack {
                                 // Connection Indicator
-                                VStack {
-                                    Text("My IP: \(getLocalIPAddress() ?? "Unknown")")
-                                    Text("X-Plane IP: \(ipAddress)")
-                                }
-                                
+                                Text(client.isConnected ? "Connected" : "Disconnected")
                                 Circle()
-                                    .fill(isConnected ? Color.green : Color.red)
+                                    .fill(client.isConnected ? Color.green : Color.red)
                                     .frame(width: 10, height: 10)
                                 
                                 Spacer()
@@ -192,6 +189,21 @@ struct ContentView: View {
                                         .font(.caption)
                                 }
 
+                                // try to reconnect to the same client
+                                Button(action: { client = XPlaneUDPClient(host: ipAddress, port: UInt16(port) ?? 49000) }) {
+                                    Image(systemName: "arrow.trianglehead.counterclockwise")
+                                        .imageScale(.large)
+                                        .padding()
+                                }
+                                
+                                // go back to the beacon connection scanner screen
+                                Button(action: { isOpened = false }) {
+                                    Image(systemName: "link.icloud")
+                                        .imageScale(.large)
+                                        .padding()
+                                }
+
+                                // open the settings screen
                                 Button(action: { isShowingSettings = true }) {
                                     Image(systemName: "gearshape")
                                         .imageScale(.large)
@@ -202,6 +214,8 @@ struct ContentView: View {
                                         isYawControlEnabled: $isYawControlEnabled,
                                         isPitchControlInverted: $isPitchControlInverted,
                                         ipAddress: $ipAddress,
+                                        port: $port,
+                                        myIpAddress: getLocalIPAddress() ?? "Unknown",
                                         xPlaneUDPClient: $client,
                                         transmitRate: $transmitRate,
                                         maxRollOrientation: $maxRollOrientation,
@@ -285,13 +299,13 @@ struct ContentView: View {
                                     .background(isTransmitting ? Color.blue : Color.green)
                                     .foregroundColor(.white)
                                     .cornerRadius(10)
-                                    .disabled(!isConnected)
+                                    .disabled(!client.isConnected)
                                     .onLongPressGesture(
                                         minimumDuration: 0.1,
                                         pressing: { isPressing in
                                             if isPressing {
                                                 if !isTransmitting {
-                                                    motion.calibrate() // Calibrate once when the button is first pressed
+                                                    motion.calibrate(newMaxPitch: maxPitchOrientation, newMaxRoll: maxRollOrientation, newMaxYaw: maxYawOrientation) // Calibrate once when the button is first pressed
                                                     isTransmitting = true
                                                     startTransmission()
                                                 }
@@ -464,11 +478,7 @@ struct ContentView: View {
     func startStatusUpdates() {
         statusUpdateTimer?.invalidate()
         statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: computeReprate(), repeats: true) { _ in
-            client.ping() { alive in
-                DispatchQueue.main.async {
-                    isConnected = alive
-                }
-            }
+            client.ping()
             client.requestStatus(index: 12) // engines (for reverse thrust)
             client.requestStatus(index: 13) // automation (for autothrottle and autopilot)
             client.requestStatus(index: 14) // brakes
@@ -479,6 +489,5 @@ struct ContentView: View {
     func stopStatusUpdates() {
         statusUpdateTimer?.invalidate()
         statusUpdateTimer = nil
-        isConnected = false
     }
 }

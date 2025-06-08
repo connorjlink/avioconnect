@@ -11,17 +11,24 @@ import Foundation
 class XPlaneUDPClient {
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "xplane.udp")
-
+    private var timer: DispatchSourceTimer?
+    private var lastPing: Date = Date.distantPast
+    
+    @Published var isConnected: Bool = false
+    
     init(host: String, port: UInt16 = 49000) {
         let endpoint = NWEndpoint.Host(host)
         let nwPort = NWEndpoint.Port(rawValue: port)!
 
         connection = NWConnection(host: endpoint, port: nwPort, using: .udp)
         connection?.start(queue: queue)
+        startReceiving()
+        startConnectionMonitor()
     }
 
     deinit {
         connection?.cancel()
+        timer?.cancel()
     }
 
     func sendControls(pitch: Float, roll: Float, yaw: Float) {
@@ -36,7 +43,7 @@ class XPlaneUDPClient {
             var v = value
             packet.append(Data(bytes: &v, count: 4))
         }
-
+        
         connection?.send(content: packet, completion: .contentProcessed { _ in
         })
     }
@@ -132,18 +139,35 @@ class XPlaneUDPClient {
         packet.append(Data(bytes: &index, count: 4))
 
         connection?.send(content: packet, completion: .contentProcessed { _ in
-            self.connection?.cancel()
         })
     }
+    
+    private func startConnectionMonitor() {
+        timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
+        timer?.schedule(deadline: .now(), repeating: 5.0)
+        timer?.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            let delta = Date().timeIntervalSince(self.lastPing)
+            self.isConnected = delta < 5.0
+        }
+        timer?.resume()
+    }
 
-    func ping(completion: @escaping (Bool) -> Void) {
+    func startReceiving() {
+        connection?.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] data, _, _, _ in
+            if let data = data,
+                let header = String(data: data.prefix(5), encoding: .utf8),
+                header == "PING\0" {
+                self?.lastPing = Date()
+            }
+            self?.startReceiving()
+        }
+    }
+
+    func ping() {
         var packet = Data()
         packet.append(contentsOf: "PING\0".utf8)
-
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 1024) { data, _, _, _ in
-            let isAlive = (data != nil)
-            completion(isAlive)
-        }
+        connection?.send(content: packet, completion: .contentProcessed { _ in
+        })
     }
 }
