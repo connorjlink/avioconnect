@@ -70,6 +70,8 @@ struct ContentView: View {
     @State private var isOpened = false
     @State private var isYawControlEnabled = true
     @State private var isPitchControlInverted = false
+    @State private var isRollControlInverted = false
+    @State private var isYawControlInverted = false
     @State private var transmitRate: Int = 10
     @State private var maxRollOrientation: Int = 90
     @State private var maxYawOrientation: Int = 90
@@ -149,7 +151,7 @@ struct ContentView: View {
                                         selectedInstance = instance
                                         isOpened = true
                                         ipAddress = instance.ipAddress
-                                        client = XPlaneUDPClient(host: ipAddress, port: UInt16(port) ?? 49000)
+                                        client.create(host: ipAddress, port: UInt16(port) ?? 49000)
                                     }) {
                                         Text("\(instance.ipAddress):\(String(instance.port))")
                                     }
@@ -182,15 +184,9 @@ struct ContentView: View {
                                     .frame(width: 10, height: 10)
                                 
                                 Spacer()
-                                
-                                if (!hasReceivedBrakesStatus || !hasReceivedReverseThrustStatus || !hasReceivedAutothrottleStatus || !hasReceivedAutopilotStatus) {
-                                    Text("One or more statuses has not yet been received.\nPlease enable the respective data outputs in X-Plane.")
-                                        .foregroundColor(.gray)
-                                        .font(.caption)
-                                }
-
+                            
                                 // try to reconnect to the same client
-                                Button(action: { client = XPlaneUDPClient(host: ipAddress, port: UInt16(port) ?? 49000) }) {
+                                Button(action: { client.create(host: ipAddress, port: UInt16(port) ?? 49000) }) {
                                     Image(systemName: "arrow.trianglehead.counterclockwise")
                                         .imageScale(.large)
                                         .padding()
@@ -213,6 +209,8 @@ struct ContentView: View {
                                     SettingsView(
                                         isYawControlEnabled: $isYawControlEnabled,
                                         isPitchControlInverted: $isPitchControlInverted,
+                                        isRollControlInverted: $isRollControlInverted,
+                                        isYawControlInverted: $isYawControlInverted,
                                         ipAddress: $ipAddress,
                                         port: $port,
                                         myIpAddress: getLocalIPAddress() ?? "Unknown",
@@ -229,22 +227,17 @@ struct ContentView: View {
                                 
                                 // Left Column: Throttle Slider
                                 VStack {
-                                    Text("Throttle: \(throttleValue, specifier: "%.2f")")
-                                    GeometryReader { geometry in
-                                            ZStack {
-                                                Slider(value: $throttleValue, in: 0...1)
-                                                    .frame(width: geometry.size.width - 50) // thickness matches column width
-                                                    .rotationEffect(.degrees(-90))
-                                                    .disabled(isAutothrottleEnabled)
-                                                    .onChange(of: throttleValue) { newValue in
-                                                        client.sendThrottle(value: newValue)
-                                                        throttleValue = newValue
-                                                    }
-                                            }
-                                            .frame(height: 150) // visual height after rotation
+                                    Text("Thrust: \(Int(throttleValue * 100))%")
+                                    Slider(value: $throttleValue, in: 0...1)
+                                        .frame(width: 150)
+                                        .rotationEffect(.degrees(-90))
+                                        .disabled(isAutothrottleEnabled)
+                                        .onChange(of: throttleValue) { newValue in
+                                            client.sendThrottle(value: newValue)
+                                            throttleValue = newValue
                                         }
-                                        .frame(height: 150) // constrain overall height
                                 }
+                                .frame(alignment: .center)
 
                                 // Center Column: Indicators and Controls
                                 VStack {
@@ -282,15 +275,15 @@ struct ContentView: View {
                                 // Right Column: Live Readouts and Controls
                                 VStack {
                                     // Live Readouts
-                                    GroupBox(label:
-                                            Text("Live Readouts")
-                                        ) {
-                                        VStack {
-                                            Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
-                                            Text("Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
-                                            Text("Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
-                                        }
+                                    VStack {
+                                        Text("Live Readouts")
+                                            .font(.headline)
+                                            .bold()
+                                        Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
+                                        Text("Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
+                                        Text("Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
                                     }
+                                    .padding()
 
                                     Button("Control") {
                                         // No action here, as calibration and transmission will be handled in the gesture
@@ -305,12 +298,13 @@ struct ContentView: View {
                                         pressing: { isPressing in
                                             if isPressing {
                                                 if !isTransmitting {
-                                                    motion.calibrate(newMaxPitch: maxPitchOrientation, newMaxRoll: maxRollOrientation, newMaxYaw: maxYawOrientation) // Calibrate once when the button is first pressed
+                                                    motion.calibrate(newMaxPitch: maxPitchOrientation, newMaxRoll: maxRollOrientation, newMaxYaw: maxYawOrientation)
                                                     isTransmitting = true
                                                     startTransmission()
                                                 }
                                             } else {
-                                                stopTransmission() // Stop transmitting when the button is released
+                                                isTransmitting = false
+                                                stopTransmission()
                                             }
                                         }
                                     ) {}
@@ -322,7 +316,7 @@ struct ContentView: View {
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
-                                    .disabled(!hasReceivedReverseThrustStatus)
+                                    //.disabled(!hasReceivedReverseThrustStatus)
                                     .onChange(of: isReverseThrustEnabled) { newValue in
                                         client.sendReversers(status: newValue)
                                     }
@@ -331,25 +325,25 @@ struct ContentView: View {
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
-                                    .disabled(!hasReceivedBrakesStatus)
+                                    //.disabled(!hasReceivedBrakesStatus)
                                     .onChange(of: isBrakesEnabled) { newValue in
                                         client.sendBrakes(status: newValue)
                                     }
                                 
-                                Toggle("Autothrottle", isOn: $isAutothrottleEnabled)
+                                Toggle("A/T", isOn: $isAutothrottleEnabled)
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
-                                    .disabled(!hasReceivedAutothrottleStatus)
+                                    //.disabled(!hasReceivedAutothrottleStatus)
                                     .onChange(of: isAutothrottleEnabled) { newValue in
                                         client.sendAutothrottle(status: newValue)
                                     }
                                 
-                                Toggle("Autopilot", isOn: $isAutopilotEnabled)
+                                Toggle("A/P", isOn: $isAutopilotEnabled)
                                     .padding()
                                     .background(Color.gray.opacity(0.2))
                                     .cornerRadius(10)
-                                    .disabled(!hasReceivedAutopilotStatus)
+                                    //.disabled(!hasReceivedAutopilotStatus)
                                     .onChange(of: isAutopilotEnabled) { newValue in
                                         client.sendAutopilot(status: newValue)
                                     }
@@ -402,7 +396,9 @@ struct ContentView: View {
             transmittedPitch = motion.getCalibratedPitch()
             transmittedPitch = isPitchControlInverted ? -transmittedPitch : transmittedPitch;
             transmittedRoll = motion.getCalibratedRoll()
+            transmittedRoll = isRollControlInverted ? -transmittedRoll : transmittedRoll;
             transmittedYaw = isYawControlEnabled ? motion.getCalibratedYaw() : 0
+            transmittedYaw = isYawControlInverted ? -transmittedYaw : transmittedYaw;
 
             client.sendControls(
                 pitch: transmittedPitch,
@@ -472,6 +468,7 @@ struct ContentView: View {
                     }
                 }
             }
+            receiveStatus(connection: connection)
         }
     }
 

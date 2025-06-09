@@ -9,7 +9,11 @@ import SwiftUI
 
 struct SettingsView: View {
     @Binding var isYawControlEnabled: Bool
+    
     @Binding var isPitchControlInverted: Bool
+    @Binding var isRollControlInverted: Bool
+    @Binding var isYawControlInverted: Bool
+    
     @Binding var ipAddress: String
     @Binding var port: String
     var myIpAddress: String
@@ -25,8 +29,11 @@ struct SettingsView: View {
             Form {
                 Section(header: Text("Control Settings")) {
                     Toggle("Enable Yaw Control", isOn: $isYawControlEnabled)
+                    
+                    Toggle("Invert Roll Control", isOn: $isRollControlInverted)
                     Toggle("Invert Pitch Control", isOn: $isPitchControlInverted)
-
+                    Toggle("Invert Yaw Control", isOn: $isYawControlInverted)
+                    
                     VStack(alignment: .leading) {
                         HStack {
                             Text("Max Roll Orientation")
@@ -76,7 +83,7 @@ struct SettingsView: View {
                     }
                     
                     HStack {
-                        Text("X-Plane IP Address")
+                        Text("Simulator IP Address")
                         Spacer()
                         TextField("e.g. 192.168.1.100", text: $ipAddress)
                             .keyboardType(.decimalPad)
@@ -85,7 +92,7 @@ struct SettingsView: View {
                     }
                     
                     HStack {
-                        Text("X-Plane Port")
+                        Text("Simulator Port")
                         Spacer()
                         TextField("e.g. 49000", text: $port)
                             .keyboardType(.decimalPad)
