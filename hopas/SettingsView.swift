@@ -23,6 +23,19 @@ struct SettingsView: View {
     @Binding var maxRollOrientation: Int
     @Binding var maxYawOrientation: Int
     @Binding var maxPitchOrientation: Int
+    
+    @Binding var showReverseThrust: Bool
+    @Binding var showBrakes: Bool
+    @Binding var showGear: Bool
+    @Binding var showAutothrottle: Bool
+    @Binding var showAutopilot: Bool
+    
+    @Binding var showFlaps: Bool
+    @Binding var showSpeedbrakes: Bool
+    @Binding var showThrottle: Bool
+    @Binding var showControls: Bool
+    
+    @Binding var numberOfFlapsNotches: Int
 
     var body: some View {
         NavigationView {
@@ -64,7 +77,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Max Yaw Orientation")
                             Spacer()
-                            Text("\(maxYawOrientation, specifier: "%.2f")")
+                            Text("\(maxYawOrientation)˚")
                                 .foregroundColor(.gray)
                         }
                         Slider(value: Binding(
@@ -73,6 +86,36 @@ struct SettingsView: View {
                         ), in: 1...90)
                     }
                 }
+                
+                Section(header: Text("Interface Settings")) {
+                    Toggle("Enable Reverse Thrust Controls", isOn: $showReverseThrust)
+                    Toggle("Enable Brake Controls", isOn: $showBrakes)
+                    Toggle("Enable Gear Controls", isOn: $showGear)
+                    Toggle("Enable Autothrottle Controls", isOn: $showAutothrottle)
+                    Toggle("Enable Autopilot Controls", isOn: $showAutopilot)
+                    Toggle("Enable Flaps Controls", isOn: $showFlaps)
+                    Toggle("Enable Speedbrakes Controls", isOn: $showSpeedbrakes)
+                    Toggle("Enable Throttle Controls", isOn: $showThrottle)
+                    Toggle("Enable Control Surface Outputs", isOn: $showControls)
+                    
+                    VStack(alignment: .leading) {
+                        HStack {
+                            Text("Number of Flaps Notches")
+                            Spacer()
+                            Text("\(numberOfFlapsNotches)")
+                                .foregroundColor(.gray)
+                        }
+                        Slider(value: Binding(
+                            get: { Float(numberOfFlapsNotches) },
+                            set: { numberOfFlapsNotches = Int($0) }
+                        ), in: 1...10)
+                    }
+                    .disabled(!showFlaps)
+                    
+                    Text("Many addon aircraft ignore some or many of the default datarefs to which these controls write. Please test compatibility and report any concerns to me and disable non-functional controls to declutter them from the interface.")
+                        .font(.footnote)
+                }
+                
                 Section(header: Text("Network Settings")) {
                     HStack {
                         Text("My IP Address")
@@ -115,8 +158,10 @@ struct SettingsView: View {
                 }
                 Section(header: Text("About")) {
                     HStack {
+                        Text("connor@connorjlink.com")
+                            .bold()
                         Text("© 2025 Connor J. Link. All Rights Reserved.")
-                        // todo add in-app purchase here
+                            .bold()
                     }
                 }
             }

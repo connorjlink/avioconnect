@@ -3,96 +3,62 @@ import Network
 import Combine
 import Foundation
 
-/*
- struct XPlaneStatus {
-     var reverseThrust: [Float]? // Array for each engine
-     var brakes: Float?
-     var autothrottleEngaged: Float?
-     var autopilotEngaged: Float?
-     var weightOnWheels: [Float]? // Array for each gear
- }
-
- func parseXPlaneDataPacket(_ data: Data) -> XPlaneStatus? {
-     guard data.count >= 36 else { return nil }
-     guard let header = String(data: data.prefix(5), encoding: .utf8), header == "DATA\0" else { return nil }
-     
-     let index = data.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: Int32.self) }
-     var status = XPlaneStatus()
-     
-     switch index {
-     case 12: // ENGINES (reverse thrust)
-         // 8 floats, 9..41
-         let values = (0..<8).map { i in
-             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
-         }
-         status.reverseThrust = values
-     case 13: // AUTOPILOT/AUTOTHROTTLE
-         // 8 floats, 9..41
-         let values = (0..<8).map { i in
-             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
-         }
-         status.autothrottleEngaged = values[0] // autothrottle_arm
-         status.autopilotEngaged = values[1]    // autopilot_mode
-     case 14: // BRAKES
-         // 8 floats, 9..41
-         let values = (0..<8).map { i in
-             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
-         }
-         status.brakes = values[0] // main brake ratio or parkbrake
-     case 17: // GEAR (weight on wheels)
-         // 8 floats, 9..41
-         let values = (0..<8).map { i in
-             data.subdata(in: 9 + i*4 ..< 13 + i*4).withUnsafeBytes { $0.load(as: Float.self) }
-         }
-         status.weightOnWheels = values
-     default:
-         return nil
-     }
-     return status
- }
- 
- */
+extension Comparable {
+    func clamp(to limits: ClosedRange<Self>) -> Self {
+        return min(max(self, limits.lowerBound), limits.upperBound)
+    }
+}
 
 // MARK: - ContentView
 struct ContentView: View {
     @StateObject private var motion = MotionManager()
-    @State private var client = XPlaneUDPClient(host: "192.168.1.21", port: 49000)
+    private static var defaultIpAddress = "192.168.1.19";
+    private static var defaultPort: UInt16 = 49000;
+    @State private var client = XPlaneUDPClient(host: defaultIpAddress, port: defaultPort)
     
     @StateObject private var beaconListener = XPlaneBeaconListener()
     @State private var selectedInstance: XPlaneBeaconListener.XPlaneInstance?
 
     @StateObject private var orientationObserver = OrientationObserver()
-
-    @State private var statusUpdateTimer: Timer?
-    @State private var throttleTimer: Timer?
     
     @State private var isTransmitting = false
     @State private var isOpened = false
     @State private var isYawControlEnabled = true
-    @State private var isPitchControlInverted = false
+    @State private var isPitchControlInverted = true
     @State private var isRollControlInverted = false
     @State private var isYawControlInverted = false
     @State private var transmitRate: Int = 10
     @State private var maxRollOrientation: Int = 90
     @State private var maxYawOrientation: Int = 90
     @State private var maxPitchOrientation: Int = 90
-    @State private var ipAddress: String = "192.168.1.19"
-    @State private var port: String = "49000"
+    @State private var ipAddress = defaultIpAddress
+    @State private var port: String = "\(defaultPort)"
     @State private var transmittedPitch: Float = 0
     @State private var transmittedRoll: Float = 0
     @State private var transmittedYaw: Float = 0
-    @State private var throttleValue: Float = 0.0 // Default throttle value
-
+    @State private var throttleValue: Float = 0.0
+    @State private var speedbrakesValue: Float = 0.0
+    @State private var flapsValue: Int = 0
+    
     @State private var isReverseThrustEnabled = false
     @State private var isBrakesEnabled = false
+    @State private var isGearDown = false
     @State private var isAutothrottleEnabled = false
     @State private var isAutopilotEnabled = false
     
-    @State private var hasReceivedReverseThrustStatus = false
-    @State private var hasReceivedBrakesStatus = false
-    @State private var hasReceivedAutothrottleStatus = false
-    @State private var hasReceivedAutopilotStatus = false
-
+    @State private var showReverseThrust = true
+    @State private var showBrakes = true
+    @State private var showGear = true
+    @State private var showAutothrottle = true
+    @State private var showAutopilot = true
+    @State private var showFlaps = true
+    @State private var showSpeedbrakes = true
+    @State private var showThrottle = true
+    @State private var showControls = true
+    
+    // default to the standard airbus flap configuration
+    @State private var numberOfFlapsNotches: Int = 4
+    
     @State private var isShowingSettings = false
 
     @FocusState private var isTextFieldFocused: Bool // To manage keyboard focus
@@ -102,6 +68,10 @@ struct ContentView: View {
         return 1.0 / Double(transmitRate)
     }
 
+    func computeFlapHandle() -> Float {
+        return Float(flapsValue) / Float(numberOfFlapsNotches)
+    }
+    
     func getLocalIPAddress() -> String? {
         var address: String?
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
@@ -164,9 +134,7 @@ struct ContentView: View {
                                 beaconListener.stopListening()
                             }
                     
-                            Button(action: {
-                                isOpened = true
-                            }) {
+                            Button(action: { isOpened = true }) {
                                 Image(systemName: "forward.fill")
                                     .imageScale(.large)
                                     .padding()
@@ -177,7 +145,7 @@ struct ContentView: View {
                     } else {
                         VStack(spacing: 10) {
                             HStack {
-                                // Connection Indicator
+                                // connection indicator (unreliable)
                                 Text(client.isConnected ? "Connected" : "Disconnected")
                                 Circle()
                                     .fill(client.isConnected ? Color.green : Color.red)
@@ -191,6 +159,7 @@ struct ContentView: View {
                                         .imageScale(.large)
                                         .padding()
                                 }
+                                .accessibilityLabel("Reconnect")
                                 
                                 // go back to the beacon connection scanner screen
                                 Button(action: { isOpened = false }) {
@@ -198,6 +167,7 @@ struct ContentView: View {
                                         .imageScale(.large)
                                         .padding()
                                 }
+                                .accessibilityLabel("Scan for instances")
 
                                 // open the settings screen
                                 Button(action: { isShowingSettings = true }) {
@@ -218,30 +188,86 @@ struct ContentView: View {
                                         transmitRate: $transmitRate,
                                         maxRollOrientation: $maxRollOrientation,
                                         maxYawOrientation: $maxYawOrientation,
-                                        maxPitchOrientation: $maxPitchOrientation
+                                        maxPitchOrientation: $maxPitchOrientation,
+                                        showReverseThrust: $showReverseThrust,
+                                        showBrakes: $showBrakes,
+                                        showGear: $showGear,
+                                        showAutothrottle: $showAutothrottle,
+                                        showAutopilot: $showAutopilot,
+                                        showFlaps: $showFlaps,
+                                        showSpeedbrakes: $showSpeedbrakes,
+                                        showThrottle: $showThrottle,
+                                        showControls: $showControls,
+                                        numberOfFlapsNotches: $numberOfFlapsNotches
                                     )
                                 }
+                                .accessibilityLabel("Settings")
                             }
                             
                             HStack {
-                                
-                                // Left Column: Throttle Slider
-                                VStack {
-                                    Text("Thrust: \(Int(throttleValue * 100))%")
-                                    Slider(value: $throttleValue, in: 0...1)
-                                        .frame(width: 150)
-                                        .rotationEffect(.degrees(-90))
-                                        .disabled(isAutothrottleEnabled)
-                                        .onChange(of: throttleValue) { newValue in
-                                            client.sendThrottle(value: newValue)
-                                            throttleValue = newValue
+                                // leftmost column
+                                HStack {
+                                    // speedbrakes controls
+                                    if (showSpeedbrakes) {
+                                        VStack {
+                                            Text("Speedbrakes: \(Int(speedbrakesValue * 100))%")
+                                            Slider(value: $speedbrakesValue, in: 0...1)
+                                                .frame(width: 150)
+                                                .rotationEffect(.degrees(90))
+                                                .onChange(of: speedbrakesValue) { newValue in
+                                                    let fv = showFlaps ? computeFlapHandle() : 0.0
+                                                    client.sendSpeedbrakesAndFlaps(speedbrakesValue: newValue, flapsValue: fv)
+                                                }
                                         }
+                                    }
+                                    
+                                    // thottle controls
+                                    if (showThrottle) {
+                                        VStack {
+                                            Text("Thrust: \(Int(throttleValue * 100))%")
+                                            Slider(value: $throttleValue, in: 0...1)
+                                                .frame(width: 150)
+                                                .rotationEffect(.degrees(-90))
+                                                .disabled(isAutothrottleEnabled)
+                                                .onChange(of: throttleValue) { newValue in
+                                                    client.sendThrottle(value: newValue)
+                                                }
+                                        }
+                                    }
+                                    
+                                    // flaps controls
+                                    if (showFlaps) {
+                                        VStack {
+                                            Text("Flaps")
+                                                .font(.headline)
+                                                .bold()
+                                            
+                                            Button(action: {
+                                                flapsValue = (flapsValue - 1).clamp(to: 0...numberOfFlapsNotches)
+                                                sendFlapsAndSpeedbrakes()
+                                            }) {
+                                                Image(systemName: "arrowtriangle.up.square")
+                                                    .imageScale(.large)
+                                                    .padding()
+                                            }
+                                            .accessibilityLabel("Retract flaps one notch")
+                                            
+                                            Button(action: {
+                                                flapsValue = (flapsValue + 1).clamp(to: 0...numberOfFlapsNotches)
+                                                sendFlapsAndSpeedbrakes()
+                                            }) {
+                                                Image(systemName: "arrowtriangle.down.square")
+                                                    .imageScale(.large)
+                                                    .padding()
+                                            }
+                                            .accessibilityLabel("Extend flaps one notch")
+                                        }
+                                    }
                                 }
-                                .frame(alignment: .center)
 
-                                // Center Column: Indicators and Controls
+                                // middle column
                                 VStack {
-                                    // Roll and Pitch Box
+                                    // transmitted roll and pitch box
                                     ZStack {
                                         Rectangle()
                                             .stroke(Color.gray, lineWidth: 2)
@@ -256,8 +282,7 @@ struct ContentView: View {
                                             )
                                     }
 
-                                    // Yaw Slider
-                                    
+                                    // yaw slider
                                     ZStack {
                                         Rectangle()
                                             .stroke(Color.gray, lineWidth: 2)
@@ -272,9 +297,8 @@ struct ContentView: View {
                                     }
                                 }
 
-                                // Right Column: Live Readouts and Controls
+                                // rightmost column
                                 VStack {
-                                    // Live Readouts
                                     VStack {
                                         Text("Live Readouts")
                                             .font(.headline)
@@ -286,7 +310,7 @@ struct ContentView: View {
                                     .padding()
 
                                     Button("Control") {
-                                        // No action here, as calibration and transmission will be handled in the gesture
+                                        // no action here: calibration and transmission resolve the gesture handler
                                     }
                                     .padding()
                                     .background(isTransmitting ? Color.blue : Color.green)
@@ -307,57 +331,70 @@ struct ContentView: View {
                                                 stopTransmission()
                                             }
                                         }
-                                    ) {}
+                                    ) {
+                                        // on gesture end
+                                    }
                                 }
                             }
                             
                             HStack {
-                                Toggle("Reversers", isOn: $isReverseThrustEnabled)
-                                    .padding()
-                                    .background(Color.gray.opacity(0.2))
-                                    .cornerRadius(10)
-                                    //.disabled(!hasReceivedReverseThrustStatus)
-                                    .onChange(of: isReverseThrustEnabled) { newValue in
-                                        client.sendReversers(status: newValue)
-                                    }
-
-                                Toggle("Brakes", isOn: $isBrakesEnabled)
-                                    .padding()
-                                    .background(Color.gray.opacity(0.2))
-                                    .cornerRadius(10)
-                                    //.disabled(!hasReceivedBrakesStatus)
-                                    .onChange(of: isBrakesEnabled) { newValue in
-                                        client.sendBrakes(status: newValue)
-                                    }
+                                if (showReverseThrust) {
+                                    Toggle("Reversers", isOn: $isReverseThrustEnabled)
+                                        .padding()
+                                        .background(Color.gray.opacity(0.2))
+                                        .cornerRadius(10)
+                                        //.disabled(!hasReceivedReverseThrustStatus)
+                                        .onChange(of: isReverseThrustEnabled) { newValue in
+                                            client.sendReversers(status: newValue)
+                                        }
+                                }
                                 
-                                Toggle("A/T", isOn: $isAutothrottleEnabled)
-                                    .padding()
-                                    .background(Color.gray.opacity(0.2))
-                                    .cornerRadius(10)
-                                    //.disabled(!hasReceivedAutothrottleStatus)
-                                    .onChange(of: isAutothrottleEnabled) { newValue in
-                                        client.sendAutothrottle(status: newValue)
-                                    }
+                                if (showBrakes) {
+                                    Toggle("Brakes", isOn: $isBrakesEnabled)
+                                        .padding()
+                                        .background(Color.gray.opacity(0.2))
+                                        .cornerRadius(10)
+                                        .onChange(of: isBrakesEnabled) { newValue in
+                                            client.sendBrakes(status: newValue)
+                                        }
+                                }
                                 
-                                Toggle("A/P", isOn: $isAutopilotEnabled)
-                                    .padding()
-                                    .background(Color.gray.opacity(0.2))
-                                    .cornerRadius(10)
-                                    //.disabled(!hasReceivedAutopilotStatus)
-                                    .onChange(of: isAutopilotEnabled) { newValue in
-                                        client.sendAutopilot(status: newValue)
-                                    }
+                                if (showGear) {
+                                    Toggle("Gear", isOn: $isGearDown)
+                                        .padding()
+                                        .background(Color.gray.opacity(0.2))
+                                        .cornerRadius(10)
+                                        .onChange(of: isGearDown) { newValue in
+                                            client.sendGear(status: newValue)
+                                        }
+                                }
+                                
+                                if (showAutothrottle) {
+                                    Toggle("A/T", isOn: $isAutothrottleEnabled)
+                                        .padding()
+                                        .background(Color.gray.opacity(0.2))
+                                        .cornerRadius(10)
+                                        .onChange(of: isAutothrottleEnabled) { newValue in
+                                            client.sendAutothrottle(status: newValue)
+                                        }
+                                }
+                                
+                                if (showAutopilot) {
+                                    Toggle("A/P", isOn: $isAutopilotEnabled)
+                                        .padding()
+                                        .background(Color.gray.opacity(0.2))
+                                        .cornerRadius(10)
+                                        .onChange(of: isAutopilotEnabled) { newValue in
+                                            client.sendAutopilot(status: newValue)
+                                        }
+                                }
                             }
                         }
                         .onAppear { 
                             motion.startUpdates(interval: computeReprate())
-                            startThrottleTransmission()
-                            startStatusUpdates()
                         }
                         .onDisappear { 
                             motion.stopUpdates()
-                            stopThrottleTransmission()
-                            stopStatusUpdates()
                         }
                     }
                 }
@@ -413,78 +450,13 @@ struct ContentView: View {
         transmittedPitch = 0
         transmittedRoll = 0
         transmittedYaw = 0
-        client.sendControls(pitch: 0, roll: 0, yaw: 0) // Send zeroed controls
-    }
-
-    func startThrottleTransmission() {
-        throttleTimer?.invalidate()
-        throttleTimer = Timer.scheduledTimer(withTimeInterval: computeReprate(), repeats: true) { _ in
-            client.sendThrottle(value: throttleValue)
-        }
+        // recenter the controls
+        client.sendControls(pitch: 0, roll: 0, yaw: 0)
     }
     
-    func stopThrottleTransmission() {
-        throttleTimer?.invalidate()
-        throttleTimer = nil
-    }
-
-    func startStatusListener() {
-        do {
-            let parameters = NWParameters.udp
-            let listener = try NWListener(using: parameters, on: 49001)
-            listener.newConnectionHandler = { connection in
-                connection.start(queue: .global())
-                receiveStatus(connection: connection)
-            }
-            listener.start(queue: .global())
-        } catch {
-            print("Error initializing status listener: \(error)")
-        }
-    }
-
-    func receiveStatus(connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { data, _, _,   _ in
-            if let data = data, data.count >= 13 {
-                let header = String(data: data.prefix(5), encoding: .utf8)
-                if header == "DATA\0" {
-                    let indexData = data.subdata(in: 5..<9)
-                    let index = indexData.withUnsafeBytes { $0.load(as: Int32.self) }
-                    if index == 14 {
-                        // Brakes value
-                        let brakeValueData = data.subdata(in: 9..<13)
-                        let brakeValue = brakeValueData.withUnsafeBytes { $0.load(as: Float.self) }
-                        DispatchQueue.main.async {
-                            isBrakesEnabled = (brakeValue > 0.5)
-                        }
-                        hasReceivedBrakesStatus = true
-                    } else if index == 17 {
-                        // Weight on wheels value
-                        let wowValueData = data.subdata(in: 9..<13)
-                        let weightOnWheels = wowValueData.withUnsafeBytes { $0.load(as: Float.self) }
-                        DispatchQueue.main.async {
-                            isReverseThrustEnabled = (weightOnWheels > 0.5)
-                        }
-                        hasReceivedReverseThrustStatus = true
-                    }
-                }
-            }
-            receiveStatus(connection: connection)
-        }
-    }
-
-    func startStatusUpdates() {
-        statusUpdateTimer?.invalidate()
-        statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: computeReprate(), repeats: true) { _ in
-            client.ping()
-            client.requestStatus(index: 12) // engines (for reverse thrust)
-            client.requestStatus(index: 13) // automation (for autothrottle and autopilot)
-            client.requestStatus(index: 14) // brakes
-            client.requestStatus(index: 17) // gear (for weight-on-wheels)
-        }
-    }
-
-    func stopStatusUpdates() {
-        statusUpdateTimer?.invalidate()
-        statusUpdateTimer = nil
+    func sendFlapsAndSpeedbrakes() {
+        let fv = showFlaps ? computeFlapHandle() : 0.0
+        let sv = showSpeedbrakes ? speedbrakesValue : 0.0
+        client.sendSpeedbrakesAndFlaps(speedbrakesValue: sv, flapsValue: fv)
     }
 }

@@ -14,8 +14,6 @@ class XPlaneUDPClient {
     private var timer: DispatchSourceTimer?
     private var lastPing: Date = Date.distantPast
     
-    private var brakesStatus: Bool = false
-    
     @Published var isConnected: Bool = false
     
     init(host: String, port: UInt16 = 49000) {
@@ -45,6 +43,53 @@ class XPlaneUDPClient {
         timer?.cancel()
         timer = nil
     }
+    
+    private func sendDATA(index: Int32, values: [Float]) {
+        var packet = Data()
+        packet.append(contentsOf: "DATA\0".utf8)
+        
+        var indexCopy = index
+        packet.append(Data(bytes: &indexCopy, count: 4))
+        
+        // data packet should always contain eight numbers
+        let paddedValues = values + Array(repeating: Float(0), count: max(0, 8 - values.count))
+        for var v in paddedValues.prefix(8) {
+            packet.append(Data(bytes: &v, count: 4))
+        }
+        
+        connection?.send(content: packet, completion: .contentProcessed { _ in })
+    }
+    
+    private func sendDREF(value: Float, for dataref: String) {
+        var packet = Data()
+        packet.append(contentsOf: "DREF0".utf8) // 5 bytes
+        
+        var val = value
+        packet.append(Data(bytes: &val, count: 4)) // 4 bytes
+        
+        var drefNameData = (dataref + "\0").data(using: .utf8) ?? Data()
+        if drefNameData.count > 500 {
+            drefNameData = drefNameData.prefix(500)
+        }
+        packet.append(drefNameData)
+        
+        if packet.count < 509 {
+            packet.append(Data(repeating: 0, count: 509 - packet.count))
+        }
+
+        connection?.send(content: packet, completion: .contentProcessed { _ in })
+    }
+    
+    private func sendCMND(of command: String) {
+        var packet = Data()
+        packet.append(contentsOf: "CMND\0".utf8)
+        
+        if let cmdData = (command + "\0").data(using: .utf8) {
+            packet.append(cmdData)
+        }
+        
+        connection?.send(content: packet, completion: .contentProcessed { _ in })
+    }
 
     func sendControls(pitch: Float, roll: Float, yaw: Float) {
         var packet = Data()
@@ -62,91 +107,44 @@ class XPlaneUDPClient {
         connection?.send(content: packet, completion: .contentProcessed { _ in
         })
     }
-
+    
     func sendThrottle(value: Float) {
-        var packet = Data()
-        packet.append(contentsOf: "DATA\0".utf8)
-
-        var index: Int32 = 25
-        packet.append(Data(bytes: &index, count: 4))
-
-        let values = [value, value, value, value] + Array(repeating: Float(0), count: 4)
-        for var v in values {
-            packet.append(Data(bytes: &v, count: 4))
-        }
-
-        connection?.send(content: packet, completion: .contentProcessed { _ in
-        })
-    }
-
-    func sendBrakes(status: Bool) {
-        var packet = Data()
-        packet.append(contentsOf: "DATA\0".utf8)
-
-        var index: Int32 = 14 // Brakes data index
-        packet.append(Data(bytes: &index, count: 4))
-
-        let brakeValue: Float = status ? 1.0 : 0.0
-        let values = [Float(0)] + [brakeValue] + Array(repeating: Float(0), count: 6)
-        for var v in values {
-            packet.append(Data(bytes: &v, count: 4))
-        }
-
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
-    }
-
-    func sendReversers(status: Bool) {
-        var packet = Data()
-        packet.append(contentsOf: "DATA\0".utf8)
-        
-        var index: Int32 = 27
-        packet.append(Data(bytes: &index, count: 4))
-        
-        let value: Float = status ? 3.0 : 1.0
-        let values = [value, value] + Array(repeating: Float(0), count: 6)
-        for var v in values {
-            packet.append(Data(bytes: &v, count: 4))
-        }
-        
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
-    }
-
-    func sendAutothrottle(status: Bool) {
-        var packet = Data()
-        packet.append(contentsOf: "DATA\0".utf8)
-        var index: Int32 = 117
-        packet.append(Data(bytes: &index, count: 4))
-        let value: Float = status ? 0.0 : -1.0
-        let values = [value] + Array(repeating: Float(0), count: 7)
-        for var v in values {
-            packet.append(Data(bytes: &v, count: 4))
-        }
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
-    }
-
-    func sendAutopilot(status: Bool) {
-        var packet = Data()
-        packet.append(contentsOf: "DATA\0".utf8)
-        var index: Int32 = 108
-        packet.append(Data(bytes: &index, count: 4))
-        let value: Float = status ? 2.0 : 0.0
-        let values = [Float(0), value] + Array(repeating: Float(0), count: 6)
-        for var v in values {
-            packet.append(Data(bytes: &v, count: 4))
-        }
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
-    }
-
-    func requestStatus(index: Int32) {
-        var packet = Data()
-        packet.append(contentsOf: "DREQ\0".utf8)
-        var index = index
-        packet.append(Data(bytes: &index, count: 4))
-
-        connection?.send(content: packet, completion: .contentProcessed { _ in
-        })
+        sendDATA(index: 25, values: [value, value, value, value])
     }
     
+    func sendReversers(status: Bool) {
+        let value: Float = status ? 3.0 : 1.0
+        sendDATA(index: 27, values: [value, value])
+    }
+
+    func sendGear(status: Bool) {
+        let gearValue: Float = status ? 1.0 : 0.0
+        sendDREF(value: gearValue, for: "sim/cockpit/switches/gear_handle_status")
+    }
+    
+    func sendBrakes(status: Bool) {
+        let brakeValue: Float = status ? 1.0 : 0.0
+        sendDREF(value: brakeValue, for: "sim/flightmodel/controls/parkbrake")
+    }
+    
+    func sendAutothrottle(status: Bool) {
+        let value: Float = status ? 0.0 : -1.0
+        sendDREF(value: value, for: "sim/cockpit2/autopilot/autothrottle_enabled")
+    }
+    
+    func sendAutopilot(status: Bool) {
+        let value: Float = status ? 2.0 : 0.0
+        sendDATA(index: 108, values: [0, value])
+    }
+    
+    func sendFlaps(value: Float) {
+        sendDREF(value: 0.5, for: "sim/cockpit2/controls/flap_ratio")
+    }
+    
+    func sendSpeedbrakesAndFlaps(speedbrakesValue: Float, flapsValue: Float) {
+        sendDATA(index: 13, values: [0, 0, 0, flapsValue, 0, 0, speedbrakesValue])
+    }
+
     private func startConnectionMonitor() {
         timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
         timer?.schedule(deadline: .now(), repeating: 1.0)
