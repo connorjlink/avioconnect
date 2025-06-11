@@ -69,7 +69,7 @@ struct ContentView: View {
     }
 
     func computeFlapHandle() -> Float {
-        return Float(flapsValue) / Float(numberOfFlapsNotches)
+        return (Float(flapsValue) / Float(numberOfFlapsNotches))
     }
     
     func getLocalIPAddress() -> String? {
@@ -143,7 +143,7 @@ struct ContentView: View {
                         }
 
                     } else {
-                        VStack(spacing: 10) {
+                        VStack {
                             HStack {
                                 // connection indicator (unreliable)
                                 Text(client.isConnected ? "Connected" : "Disconnected")
@@ -184,7 +184,7 @@ struct ContentView: View {
                                         ipAddress: $ipAddress,
                                         port: $port,
                                         myIpAddress: getLocalIPAddress() ?? "Unknown",
-                                        xPlaneUDPClient: $client,
+                                        xPlaneUDPClient: client,
                                         transmitRate: $transmitRate,
                                         maxRollOrientation: $maxRollOrientation,
                                         maxYawOrientation: $maxYawOrientation,
@@ -204,65 +204,49 @@ struct ContentView: View {
                                 .accessibilityLabel("Settings")
                             }
                             
-                            HStack {
+                            // main content area!!!!
+                            ZStack {
                                 // leftmost column
                                 HStack {
                                     // speedbrakes controls
                                     if (showSpeedbrakes) {
                                         VStack {
-                                            Text("Speedbrakes: \(Int(speedbrakesValue * 100))%")
-                                            Slider(value: $speedbrakesValue, in: 0...1)
-                                                .frame(width: 150)
-                                                .rotationEffect(.degrees(90))
-                                                .onChange(of: speedbrakesValue) { newValue in
-                                                    let fv = showFlaps ? computeFlapHandle() : 0.0
-                                                    client.sendSpeedbrakesAndFlaps(speedbrakesValue: newValue, flapsValue: fv)
-                                                }
+                                            Text("SPDBRK: \(Int(speedbrakesValue * 100))%")
+                                                .frame(width: 120, alignment: .center)
+                                                .monospacedDigit()
+                                            ZStack {
+                                                Slider(value: $speedbrakesValue, in: 0...1)
+                                                    .frame(width: 150)
+                                                    .rotationEffect(.degrees(90))
+                                                    .onChange(of: speedbrakesValue) { newValue in
+                                                        client.sendSpeedbrakes(speedbrakesValue: newValue)
+                                                    }
+                                            }
+                                            .frame(width: 40, height: 150)
                                         }
                                     }
                                     
                                     // thottle controls
                                     if (showThrottle) {
                                         VStack {
-                                            Text("Thrust: \(Int(throttleValue * 100))%")
-                                            Slider(value: $throttleValue, in: 0...1)
-                                                .frame(width: 150)
-                                                .rotationEffect(.degrees(-90))
-                                                .disabled(isAutothrottleEnabled)
-                                                .onChange(of: throttleValue) { newValue in
-                                                    client.sendThrottle(value: newValue)
-                                                }
+                                            Text("THR: \(Int(throttleValue * 100))%")
+                                                .frame(width: 120, alignment: .center)
+                                                .monospacedDigit()
+                                            ZStack {
+                                                Slider(value: $throttleValue, in: 0...1)
+                                                    .frame(width: 150)
+                                                    .rotationEffect(.degrees(-90))
+                                                    .disabled(isAutothrottleEnabled)
+                                                    .onChange(of: throttleValue) { newValue in
+                                                        client.sendThrottle(value: newValue)
+                                                    }
+                                            }
+                                            .frame(width: 40, height: 150)
                                         }
                                     }
                                     
-                                    // flaps controls
-                                    if (showFlaps) {
-                                        VStack {
-                                            Text("Flaps")
-                                                .font(.headline)
-                                                .bold()
-                                            
-                                            Button(action: {
-                                                flapsValue = (flapsValue - 1).clamp(to: 0...numberOfFlapsNotches)
-                                                sendFlapsAndSpeedbrakes()
-                                            }) {
-                                                Image(systemName: "arrowtriangle.up.square")
-                                                    .imageScale(.large)
-                                                    .padding()
-                                            }
-                                            .accessibilityLabel("Retract flaps one notch")
-                                            
-                                            Button(action: {
-                                                flapsValue = (flapsValue + 1).clamp(to: 0...numberOfFlapsNotches)
-                                                sendFlapsAndSpeedbrakes()
-                                            }) {
-                                                Image(systemName: "arrowtriangle.down.square")
-                                                    .imageScale(.large)
-                                                    .padding()
-                                            }
-                                            .accessibilityLabel("Extend flaps one notch")
-                                        }
-                                    }
+                                    // align left
+                                    Spacer()
                                 }
 
                                 // middle column
@@ -298,48 +282,86 @@ struct ContentView: View {
                                 }
 
                                 // rightmost column
-                                VStack {
-                                    VStack {
-                                        Text("Live Readouts")
-                                            .font(.headline)
-                                            .bold()
-                                        Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
-                                        Text("Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
-                                        Text("Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
-                                    }
-                                    .padding()
-
-                                    Button("Control") {
-                                        // no action here: calibration and transmission resolve the gesture handler
-                                    }
-                                    .padding()
-                                    .background(isTransmitting ? Color.blue : Color.green)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(10)
-                                    .disabled(!client.isConnected)
-                                    .onLongPressGesture(
-                                        minimumDuration: 0.1,
-                                        pressing: { isPressing in
-                                            if isPressing {
-                                                if !isTransmitting {
-                                                    motion.calibrate(newMaxPitch: maxPitchOrientation, newMaxRoll: maxRollOrientation, newMaxYaw: maxYawOrientation)
-                                                    isTransmitting = true
-                                                    startTransmission()
+                                HStack {
+                                    // right align
+                                    Spacer()
+                                    
+                                    // flaps controls
+                                    if (showFlaps) {
+                                        ZStack {
+                                            VStack {
+                                                Text("FLAP")
+                                                    .font(.headline)
+                                                    .bold()
+                                                    .padding()
+                                                
+                                                Button(action: {
+                                                    flapsValue = (flapsValue - 1).clamp(to: 0...numberOfFlapsNotches)
+                                                    client.sendFlaps(value: computeFlapHandle())
+                                                }) {
+                                                    Image(systemName: "arrowtriangle.up.square")
+                                                        .font(.system(size: 48))
                                                 }
-                                            } else {
-                                                isTransmitting = false
-                                                stopTransmission()
+                                                .accessibilityLabel("Retract flaps one notch")
+                                                .disabled(flapsValue <= 0)
+                                                
+                                                Button(action: {
+                                                    flapsValue = (flapsValue + 1).clamp(to: 0...numberOfFlapsNotches)
+                                                    client.sendFlaps(value: computeFlapHandle())
+                                                }) {
+                                                    Image(systemName: "arrowtriangle.down.square")
+                                                        .font(.system(size: 48))
+                                                }
+                                                .accessibilityLabel("Extend flaps one notch")
+                                                .disabled(flapsValue >= numberOfFlapsNotches)
                                             }
+                                            .frame(width: 120, height: 150)
                                         }
-                                    ) {
-                                        // on gesture end
+                                    }
+                                    
+                                    VStack {
+                                        VStack {
+                                            Text("Live Readouts")
+                                                .font(.headline)
+                                                .bold()
+                                            Text("Pitch: \(motion.getCalibratedPitch(), specifier: "%.2f")")
+                                            Text("Roll: \(motion.getCalibratedRoll(), specifier: "%.2f")")
+                                            Text("Yaw: \(motion.getCalibratedYaw(), specifier: "%.2f")")
+                                        }
+                                        .padding()
+
+                                        Button("Control") {
+                                            // no action here: calibration and transmission resolve the gesture handler
+                                        }
+                                        .padding()
+                                        .background(isTransmitting ? Color.blue : Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(10)
+                                        .disabled(!client.isConnected)
+                                        .onLongPressGesture(
+                                            minimumDuration: 0.1,
+                                            pressing: { isPressing in
+                                                if isPressing {
+                                                    if !isTransmitting {
+                                                        motion.calibrate(newMaxPitch: maxPitchOrientation, newMaxRoll: maxRollOrientation, newMaxYaw: maxYawOrientation)
+                                                        isTransmitting = true
+                                                        startTransmission()
+                                                    }
+                                                } else {
+                                                    isTransmitting = false
+                                                    stopTransmission()
+                                                }
+                                            }
+                                        ) {
+                                            // on gesture end
+                                        }
                                     }
                                 }
                             }
                             
                             HStack {
                                 if (showReverseThrust) {
-                                    Toggle("Reversers", isOn: $isReverseThrustEnabled)
+                                    Toggle("REV", isOn: $isReverseThrustEnabled)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
                                         .cornerRadius(10)
@@ -350,7 +372,7 @@ struct ContentView: View {
                                 }
                                 
                                 if (showBrakes) {
-                                    Toggle("Brakes", isOn: $isBrakesEnabled)
+                                    Toggle("BRK", isOn: $isBrakesEnabled)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
                                         .cornerRadius(10)
@@ -360,7 +382,7 @@ struct ContentView: View {
                                 }
                                 
                                 if (showGear) {
-                                    Toggle("Gear", isOn: $isGearDown)
+                                    Toggle("GEAR", isOn: $isGearDown)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
                                         .cornerRadius(10)
@@ -452,11 +474,5 @@ struct ContentView: View {
         transmittedYaw = 0
         // recenter the controls
         client.sendControls(pitch: 0, roll: 0, yaw: 0)
-    }
-    
-    func sendFlapsAndSpeedbrakes() {
-        let fv = showFlaps ? computeFlapHandle() : 0.0
-        let sv = showSpeedbrakes ? speedbrakesValue : 0.0
-        client.sendSpeedbrakesAndFlaps(speedbrakesValue: sv, flapsValue: fv)
     }
 }

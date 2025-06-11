@@ -8,11 +8,29 @@
 import Network
 import Foundation
 
-class XPlaneUDPClient {
+class XPlaneUDPClient: ObservableObject {
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "xplane.udp")
     private var timer: DispatchSourceTimer?
     private var lastPing: Date = Date.distantPast
+    
+    private static var DEFAULT_REVERSETHRUST_DATAREF = "sim/flightmodel/controls/reverser_ratio"
+    private static var DEFAULT_BRAKES_DATAREF = "sim/cockpit2/controls/wheel_brake_ratio"
+    private static var DEFAULT_GEAR_DATAREF = "sim/cockpit2/controls/gear_handle_down"
+    private static var DEFAULT_AUTOTHROTTLE_DATAREF = "sim/cockpit2/autopilot/autothrottle_enabled"
+    private static var DEFAULT_AUTOPILOT_COMMAND = "sim/autopilot/servos_toggle" //"sim/cockpit2/autopilot/servos_enabled"
+    
+    private static var DEFAULT_SPEEDBRAKES_DATAREF = "sim/cockpit2/controls/speedbrake_ratio"
+    private static var DEFAULT_FLAPS_DATAREF = "sim/cockpit2/controls/flap_ratio"
+    
+    @Published var reverseThrustDataref = DEFAULT_REVERSETHRUST_DATAREF
+    @Published var brakesDataref = DEFAULT_BRAKES_DATAREF
+    @Published var gearDataref = DEFAULT_GEAR_DATAREF
+    @Published var autothrottleDataref = DEFAULT_AUTOTHROTTLE_DATAREF
+    @Published var autopilotCommand = DEFAULT_AUTOPILOT_COMMAND
+    @Published var speedbrakesDataref = DEFAULT_SPEEDBRAKES_DATAREF
+    @Published var flapsDataref = DEFAULT_FLAPS_DATAREF
+    
     
     @Published var isConnected: Bool = false
     
@@ -113,36 +131,38 @@ class XPlaneUDPClient {
     }
     
     func sendReversers(status: Bool) {
-        let value: Float = status ? 3.0 : 1.0
-        sendDATA(index: 27, values: [value, value])
+        if status {
+            sendCMND(of: "sim/engines/thrust_reverse_on")
+        } else {
+            sendCMND(of: "sim/engines/thrust_reverse_off")
+        }
     }
 
     func sendGear(status: Bool) {
         let gearValue: Float = status ? 1.0 : 0.0
-        sendDREF(value: gearValue, for: "sim/cockpit/switches/gear_handle_status")
+        sendDREF(value: gearValue, for: gearDataref)
     }
     
     func sendBrakes(status: Bool) {
         let brakeValue: Float = status ? 1.0 : 0.0
-        sendDREF(value: brakeValue, for: "sim/flightmodel/controls/parkbrake")
+        sendDREF(value: brakeValue, for: brakesDataref)
     }
     
     func sendAutothrottle(status: Bool) {
         let value: Float = status ? 0.0 : -1.0
-        sendDREF(value: value, for: "sim/cockpit2/autopilot/autothrottle_enabled")
+        sendDREF(value: value, for: autothrottleDataref)
     }
     
     func sendAutopilot(status: Bool) {
-        let value: Float = status ? 2.0 : 0.0
-        sendDATA(index: 108, values: [0, value])
+        sendCMND(of: autopilotCommand)
     }
     
     func sendFlaps(value: Float) {
-        sendDREF(value: 0.5, for: "sim/cockpit2/controls/flap_ratio")
+        sendDREF(value: value, for: flapsDataref)
     }
     
-    func sendSpeedbrakesAndFlaps(speedbrakesValue: Float, flapsValue: Float) {
-        sendDATA(index: 13, values: [0, 0, 0, flapsValue, 0, 0, speedbrakesValue])
+    func sendSpeedbrakes(speedbrakesValue: Float) {
+        sendDREF(value: speedbrakesValue, for: speedbrakesDataref)
     }
 
     private func startConnectionMonitor() {

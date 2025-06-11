@@ -17,7 +17,7 @@ struct SettingsView: View {
     @Binding var ipAddress: String
     @Binding var port: String
     var myIpAddress: String
-    @Binding var xPlaneUDPClient: XPlaneUDPClient
+    @ObservedObject var xPlaneUDPClient: XPlaneUDPClient
     @Binding var transmitRate: Int
     
     @Binding var maxRollOrientation: Int
@@ -36,6 +36,8 @@ struct SettingsView: View {
     @Binding var showControls: Bool
     
     @Binding var numberOfFlapsNotches: Int
+    
+    var notModifiable = "This value cannot be modified"
 
     var body: some View {
         NavigationView {
@@ -89,28 +91,128 @@ struct SettingsView: View {
                 
                 Section(header: Text("Interface Settings")) {
                     Toggle("Enable Reverse Thrust Controls", isOn: $showReverseThrust)
-                    Toggle("Enable Brake Controls", isOn: $showBrakes)
-                    Toggle("Enable Gear Controls", isOn: $showGear)
-                    Toggle("Enable Autothrottle Controls", isOn: $showAutothrottle)
-                    Toggle("Enable Autopilot Controls", isOn: $showAutopilot)
-                    Toggle("Enable Flaps Controls", isOn: $showFlaps)
-                    Toggle("Enable Speedbrakes Controls", isOn: $showSpeedbrakes)
-                    Toggle("Enable Throttle Controls", isOn: $showThrottle)
-                    Toggle("Enable Control Surface Outputs", isOn: $showControls)
-                    
-                    VStack(alignment: .leading) {
+                    if showReverseThrust {
                         HStack {
-                            Text("Number of Flaps Notches")
+                            Text("Reverse Thrust Dataref")
                             Spacer()
-                            Text("\(numberOfFlapsNotches)")
-                                .foregroundColor(.gray)
+                            TextField("Enter a valid dataref...", text: $xPlaneUDPClient.reverseThrustDataref)
+                                .foregroundStyle(.gray)
+                                .bold()
+                                .multilineTextAlignment(.trailing)
                         }
-                        Slider(value: Binding(
-                            get: { Float(numberOfFlapsNotches) },
-                            set: { numberOfFlapsNotches = Int($0) }
-                        ), in: 1...10)
                     }
-                    .disabled(!showFlaps)
+                    
+                    Toggle("Enable Brake Controls", isOn: $showBrakes)
+                    if showBrakes {
+                        HStack {
+                            Text("Brakes Dataref")
+                            Spacer()
+                            TextField("Enter a valid dataref...", text: $xPlaneUDPClient.brakesDataref)
+                                .foregroundStyle(.gray)
+                                .bold()
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    Toggle("Enable Gear Controls", isOn: $showGear)
+                    if showGear {
+                        HStack {
+                            Text("Gear Dataref")
+                            Spacer()
+                            TextField("Enter a valid dataref...", text: $xPlaneUDPClient.gearDataref)
+                                .foregroundStyle(.gray)
+                                .bold()
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    Toggle("Enable Autothrottle Controls", isOn: $showAutothrottle)
+                    if showAutothrottle {
+                        HStack {
+                            Text("Autothrottle Command")
+                            Spacer()
+                            TextField("Enter a valid command...", text: $xPlaneUDPClient.autothrottleDataref)
+                                .foregroundStyle(.gray)
+                                .bold()
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    Toggle("Enable Autopilot Controls", isOn: $showAutopilot)
+                    if showAutopilot {
+                        HStack {
+                            Text("Autopilot Command")
+                            Spacer()
+                            TextField("Enter a valid command...", text: $xPlaneUDPClient.autopilotCommand)
+                                .foregroundStyle(.gray)
+                                .bold()
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    Toggle("Enable Speedbrakes Controls", isOn: $showSpeedbrakes)
+                    if showSpeedbrakes {
+                        HStack {
+                            Text("Speedbrakes Dataref")
+                            Spacer()
+                            TextField("Enter a valid dataref...", text: $xPlaneUDPClient.speedbrakesDataref)
+                                .foregroundStyle(.gray)
+                                .bold()
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    Toggle("Enable Throttle Controls", isOn: $showThrottle)
+                    if showThrottle {
+                        HStack {
+                            Text("Throttle Dataref")
+                            Spacer()
+                            TextField("Enter a valid dataref...", text: .constant(notModifiable))
+                                .disabled(true)
+                                .foregroundStyle(.gray)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    Toggle("Enable Control Surface Outputs", isOn: $showControls)
+                    if showControls {
+                        HStack {
+                            Text("Control Surface Dataref")
+                            Spacer()
+                            TextField("Enter a valid dataref...", text: .constant(notModifiable))
+                                .disabled(true)
+                                .foregroundStyle(.gray)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    Toggle("Enable Flaps Controls", isOn: $showFlaps)
+                    if showFlaps {
+                        HStack {
+                            Text("Flaps Dataref")
+                            Spacer()
+                            TextField("Enter a valid dataref...", text: $xPlaneUDPClient.flapsDataref)
+                                .foregroundStyle(.gray)
+                                .bold()
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    
+                    if showFlaps {
+                        VStack {
+                            HStack {
+                                Text("Number of Flaps Notches")
+                                Spacer()
+                                Text("\(numberOfFlapsNotches)")
+                                    .foregroundColor(.gray)
+                                    .bold()
+                            }
+                            Slider(value: Binding(
+                                get: { Float(numberOfFlapsNotches) },
+                                set: { numberOfFlapsNotches = Int($0) }
+                            ), in: 1...10)
+                        }
+                    }
                     
                     Text("Many addon aircraft ignore some or many of the default datarefs to which these controls write. Please test compatibility and report any concerns to me and disable non-functional controls to declutter them from the interface.")
                         .font(.footnote)
@@ -132,6 +234,7 @@ struct SettingsView: View {
                             .keyboardType(.decimalPad)
                             .frame(maxWidth: 180)
                             .multilineTextAlignment(.trailing)
+                            .bold()
                     }
                     
                     HStack {
@@ -141,6 +244,7 @@ struct SettingsView: View {
                             .keyboardType(.decimalPad)
                             .frame(maxWidth: 180)
                             .multilineTextAlignment(.trailing)
+                            .bold()
                     }
                     
                     VStack(alignment: .leading) {
@@ -149,6 +253,7 @@ struct SettingsView: View {
                             Spacer()
                             Text("\(transmitRate) Hz")
                                 .foregroundColor(.gray)
+                                .bold()
                         }
                         Slider(value: Binding(
                             get: { Float(transmitRate) },
@@ -157,12 +262,8 @@ struct SettingsView: View {
                     }
                 }
                 Section(header: Text("About")) {
-                    HStack {
-                        Text("connor@connorjlink.com")
-                            .bold()
-                        Text("© 2025 Connor J. Link. All Rights Reserved.")
-                            .bold()
-                    }
+                    Text("connor@connorjlink.com")
+                    Text("© 2025 Connor J. Link. All Rights Reserved.")
                 }
             }
             .navigationTitle("Settings")
@@ -170,7 +271,8 @@ struct SettingsView: View {
             .onTapGesture {
                 // ugly hack to close the decimal-pad keyboard whenever the user taps outside of it
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                xPlaneUDPClient = XPlaneUDPClient(host: ipAddress, port: UInt16(port) ?? 49000)
+                xPlaneUDPClient.cleanup()
+                xPlaneUDPClient.create(host: ipAddress, port: UInt16(port) ?? 49000)
             }
         }
     }
