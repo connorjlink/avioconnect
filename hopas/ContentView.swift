@@ -12,9 +12,16 @@ extension Comparable {
 // MARK: - ContentView
 struct ContentView: View {
     @StateObject private var motion = MotionManager()
-    private static var defaultIpAddress = "192.168.1.19";
+    
+    private static var defaultIpAddress = "192.168.1.21";
     private static var defaultPort: UInt16 = 49000;
-    @State private var client = XPlaneUDPClient(host: defaultIpAddress, port: defaultPort)
+    @ObservedObject private var client = XPlaneUDPClient(host: defaultIpAddress, port: defaultPort)
+    @ObservedObject private var settings = SettingsModel()
+    
+    init() {
+        // try to fetch from file if possible
+        settings.load()
+    }
     
     @StateObject private var beaconListener = XPlaneBeaconListener()
     @State private var selectedInstance: XPlaneBeaconListener.XPlaneInstance?
@@ -23,53 +30,39 @@ struct ContentView: View {
     
     @State private var isTransmitting = false
     @State private var isOpened = false
-    @State private var isYawControlEnabled = true
-    @State private var isPitchControlInverted = true
-    @State private var isRollControlInverted = false
-    @State private var isYawControlInverted = false
-    @State private var transmitRate: Int = 10
-    @State private var maxRollOrientation: Int = 90
-    @State private var maxYawOrientation: Int = 90
-    @State private var maxPitchOrientation: Int = 90
-    @State private var ipAddress = defaultIpAddress
-    @State private var port: String = "\(defaultPort)"
+    
+    // used to draw the control surfaces box
     @State private var transmittedPitch: Float = 0
     @State private var transmittedRoll: Float = 0
     @State private var transmittedYaw: Float = 0
+    
+    // from sliders and buttons
     @State private var throttleValue: Float = 0.0
     @State private var speedbrakesValue: Float = 0.0
     @State private var flapsValue: Int = 0
+    @State private var trimValue: Float = 0.0
     
+    // used fror the toggles
     @State private var isReverseThrustEnabled = false
     @State private var isBrakesEnabled = false
     @State private var isGearDown = false
     @State private var isAutothrottleEnabled = false
     @State private var isAutopilotEnabled = false
     
-    @State private var showReverseThrust = true
-    @State private var showBrakes = true
-    @State private var showGear = true
-    @State private var showAutothrottle = true
-    @State private var showAutopilot = true
-    @State private var showFlaps = true
-    @State private var showSpeedbrakes = true
-    @State private var showThrottle = true
-    @State private var showControls = true
-    
-    // default to the standard airbus flap configuration
-    @State private var numberOfFlapsNotches: Int = 4
-    
     @State private var isShowingSettings = false
 
     @FocusState private var isTextFieldFocused: Bool // To manage keyboard focus
 
+    // used to manage the trim button long-press
+    @State private var trimTimer: Timer?
+    
     // must be of Double type for timer functions
     func computeReprate() -> Double {
-        return 1.0 / Double(transmitRate)
+        return 1.0 / Double(settings.transmitRate)
     }
 
     func computeFlapHandle() -> Float {
-        return (Float(flapsValue) / Float(numberOfFlapsNotches))
+        return (Float(flapsValue) / Float(settings.numberOfFlapsNotches))
     }
     
     func getLocalIPAddress() -> String? {
@@ -120,8 +113,7 @@ struct ContentView: View {
                                     Button(action: {
                                         selectedInstance = instance
                                         isOpened = true
-                                        ipAddress = instance.ipAddress
-                                        client.create(host: ipAddress, port: UInt16(port) ?? 49000)
+                                        client.create(host: settings.ipAddress, port: UInt16(settings.port) ?? 49000)
                                     }) {
                                         Text("\(instance.ipAddress):\(String(instance.port))")
                                     }
@@ -154,7 +146,7 @@ struct ContentView: View {
                                 Spacer()
                             
                                 // try to reconnect to the same client
-                                Button(action: { client.create(host: ipAddress, port: UInt16(port) ?? 49000) }) {
+                                Button(action: { client.create(host: settings.ipAddress, port: UInt16(settings.port) ?? 49000) }) {
                                     Image(systemName: "arrow.trianglehead.counterclockwise")
                                         .imageScale(.large)
                                         .padding()
@@ -177,28 +169,9 @@ struct ContentView: View {
                                 }
                                 .sheet(isPresented: $isShowingSettings) {
                                     SettingsView(
-                                        isYawControlEnabled: $isYawControlEnabled,
-                                        isPitchControlInverted: $isPitchControlInverted,
-                                        isRollControlInverted: $isRollControlInverted,
-                                        isYawControlInverted: $isYawControlInverted,
-                                        ipAddress: $ipAddress,
-                                        port: $port,
+                                        settings: settings,
+                                        client: client,
                                         myIpAddress: getLocalIPAddress() ?? "Unknown",
-                                        xPlaneUDPClient: client,
-                                        transmitRate: $transmitRate,
-                                        maxRollOrientation: $maxRollOrientation,
-                                        maxYawOrientation: $maxYawOrientation,
-                                        maxPitchOrientation: $maxPitchOrientation,
-                                        showReverseThrust: $showReverseThrust,
-                                        showBrakes: $showBrakes,
-                                        showGear: $showGear,
-                                        showAutothrottle: $showAutothrottle,
-                                        showAutopilot: $showAutopilot,
-                                        showFlaps: $showFlaps,
-                                        showSpeedbrakes: $showSpeedbrakes,
-                                        showThrottle: $showThrottle,
-                                        showControls: $showControls,
-                                        numberOfFlapsNotches: $numberOfFlapsNotches
                                     )
                                 }
                                 .accessibilityLabel("Settings")
@@ -208,40 +181,116 @@ struct ContentView: View {
                             ZStack {
                                 // leftmost column
                                 HStack {
-                                    // speedbrakes controls
-                                    if (showSpeedbrakes) {
+                                    // trim controls
+                                    if (settings.showTrim) {
                                         VStack {
-                                            Text("SPDBRK: \(Int(speedbrakesValue * 100))%")
-                                                .frame(width: 120, alignment: .center)
-                                                .monospacedDigit()
+                                            Text("TRIM")
+                                                .font(.headline)
+                                                .padding()
+                                            
+                                            VStack {
+                                                Button(action: {
+                                                    trimValue = (trimValue - 0.01).clamp(to: -1...1)
+                                                    client.sendTrim(value: trimValue)
+                                                }) {
+                                                    Image(systemName: "arrowtriangle.up.square")
+                                                        .font(.system(size: 48))
+                                                }
+                                                .accessibilityLabel("Pitch trim down one click")
+                                                .disabled(trimValue <= -1.0)
+                                                .onLongPressGesture(minimumDuration: 1.0, pressing: { isPressing in
+                                                    if isPressing {
+                                                        trimTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                                                            if trimValue > -1.0 {
+                                                                trimValue = (trimValue - 0.01).clamp(to: -1...1)
+                                                                client.sendTrim(value: trimValue)
+                                                            }
+                                                        }
+                                                    } else {
+                                                        trimTimer?.invalidate()
+                                                        trimTimer = nil
+                                                    }
+                                                }, perform: {})
+
+                                                Button(action: {
+                                                    trimValue = (trimValue + 0.01).clamp(to: -1...1)
+                                                    client.sendTrim(value: trimValue)
+                                                }) {
+                                                    Image(systemName: "arrowtriangle.down.square")
+                                                        .font(.system(size: 48))
+                                                }
+                                                .accessibilityLabel("Pitch trim up one notch")
+                                                .disabled(trimValue >= 1.0)
+                                                .onLongPressGesture(minimumDuration: 1.0, pressing: { isPressing in
+                                                    if isPressing {
+                                                        trimTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                                                            if trimValue < 1.0 {
+                                                                trimValue = (trimValue + 0.01).clamp(to: -1...1)
+                                                                client.sendTrim(value: trimValue)
+                                                            }
+                                                        }
+                                                    } else {
+                                                        trimTimer?.invalidate()
+                                                        trimTimer = nil
+                                                    }
+                                                }, perform: {})
+                                            }
+                                            .frame(height: 130)
+                                            
+                                            Text("\(Int(trimValue * 100))%")
+                                                .padding()
+                                        }
+                                        .frame(width: 75)
+                                    }
+                                    
+                                    // speedbrakes controls
+                                    if (settings.showSpeedbrakes) {
+                                        VStack {
+                                            Text("SPDBRK")
+                                                .font(.headline)
+                                                .padding()
+                                            
                                             ZStack {
                                                 Slider(value: $speedbrakesValue, in: 0...1)
-                                                    .frame(width: 150)
+                                                    .frame(width: 130)
                                                     .rotationEffect(.degrees(90))
                                                     .onChange(of: speedbrakesValue) { newValue in
-                                                        client.sendSpeedbrakes(speedbrakesValue: newValue)
+                                                        client.sendSpeedbrakes(value: newValue)
                                                     }
                                             }
-                                            .frame(width: 40, height: 150)
+                                            .frame(width: 40, height: 130)
+                                            
+                                            //.frame(width: 120, alignment: .center)
+                                            Text("\(Int(speedbrakesValue * 100))%")
+                                                .monospacedDigit()
+                                                .frame(alignment: .center)
+                                                .padding()
                                         }
                                     }
                                     
                                     // thottle controls
-                                    if (showThrottle) {
+                                    if (settings.showThrottle) {
                                         VStack {
-                                            Text("THR: \(Int(throttleValue * 100))%")
-                                                .frame(width: 120, alignment: .center)
-                                                .monospacedDigit()
+                                            Text("THR")
+                                                .font(.headline)
+                                                .padding()
+
                                             ZStack {
                                                 Slider(value: $throttleValue, in: 0...1)
-                                                    .frame(width: 150)
+                                                    .frame(width: 130)
                                                     .rotationEffect(.degrees(-90))
                                                     .disabled(isAutothrottleEnabled)
                                                     .onChange(of: throttleValue) { newValue in
                                                         client.sendThrottle(value: newValue)
                                                     }
                                             }
-                                            .frame(width: 40, height: 150)
+                                            .frame(width: 40, height: 130)
+                                            
+                                            //.frame(width: 120, alignment: .center)
+                                            Text("\(Int(throttleValue * 100))%")
+                                                .monospacedDigit()
+                                                .frame(alignment: .center)
+                                                .padding()
                                         }
                                     }
                                     
@@ -287,16 +336,15 @@ struct ContentView: View {
                                     Spacer()
                                     
                                     // flaps controls
-                                    if (showFlaps) {
-                                        ZStack {
+                                    if (settings.showFlaps) {
+                                        VStack {
+                                            Text("FLAP")
+                                                .font(.headline)
+                                                .padding()
+                                            
                                             VStack {
-                                                Text("FLAP")
-                                                    .font(.headline)
-                                                    .bold()
-                                                    .padding()
-                                                
                                                 Button(action: {
-                                                    flapsValue = (flapsValue - 1).clamp(to: 0...numberOfFlapsNotches)
+                                                    flapsValue = (flapsValue - 1).clamp(to: 0...settings.numberOfFlapsNotches)
                                                     client.sendFlaps(value: computeFlapHandle())
                                                 }) {
                                                     Image(systemName: "arrowtriangle.up.square")
@@ -306,17 +354,21 @@ struct ContentView: View {
                                                 .disabled(flapsValue <= 0)
                                                 
                                                 Button(action: {
-                                                    flapsValue = (flapsValue + 1).clamp(to: 0...numberOfFlapsNotches)
+                                                    flapsValue = (flapsValue + 1).clamp(to: 0...settings.numberOfFlapsNotches)
                                                     client.sendFlaps(value: computeFlapHandle())
                                                 }) {
                                                     Image(systemName: "arrowtriangle.down.square")
                                                         .font(.system(size: 48))
                                                 }
                                                 .accessibilityLabel("Extend flaps one notch")
-                                                .disabled(flapsValue >= numberOfFlapsNotches)
+                                                .disabled(flapsValue >= settings.numberOfFlapsNotches)
                                             }
-                                            .frame(width: 120, height: 150)
+                                            .frame(height: 130)
+
+                                            Text("F\(Int(flapsValue))")
+                                                .padding()
                                         }
+                                        .frame(width: 120)
                                     }
                                     
                                     VStack {
@@ -343,7 +395,7 @@ struct ContentView: View {
                                             pressing: { isPressing in
                                                 if isPressing {
                                                     if !isTransmitting {
-                                                        motion.calibrate(newMaxPitch: maxPitchOrientation, newMaxRoll: maxRollOrientation, newMaxYaw: maxYawOrientation)
+                                                        motion.calibrate(newMaxPitch: settings.maxPitchOrientation, newMaxRoll: settings.maxRollOrientation, newMaxYaw: settings.maxYawOrientation)
                                                         isTransmitting = true
                                                         startTransmission()
                                                     }
@@ -360,7 +412,7 @@ struct ContentView: View {
                             }
                             
                             HStack {
-                                if (showReverseThrust) {
+                                if (settings.showReverseThrust) {
                                     Toggle("REV", isOn: $isReverseThrustEnabled)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
@@ -371,7 +423,7 @@ struct ContentView: View {
                                         }
                                 }
                                 
-                                if (showBrakes) {
+                                if (settings.showBrakes) {
                                     Toggle("BRK", isOn: $isBrakesEnabled)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
@@ -381,7 +433,7 @@ struct ContentView: View {
                                         }
                                 }
                                 
-                                if (showGear) {
+                                if (settings.showGear) {
                                     Toggle("GEAR", isOn: $isGearDown)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
@@ -391,7 +443,7 @@ struct ContentView: View {
                                         }
                                 }
                                 
-                                if (showAutothrottle) {
+                                if (settings.showAutothrottle) {
                                     Toggle("A/T", isOn: $isAutothrottleEnabled)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
@@ -401,7 +453,7 @@ struct ContentView: View {
                                         }
                                 }
                                 
-                                if (showAutopilot) {
+                                if (settings.showAutopilot) {
                                     Toggle("A/P", isOn: $isAutopilotEnabled)
                                         .padding()
                                         .background(Color.gray.opacity(0.2))
@@ -453,11 +505,11 @@ struct ContentView: View {
             }
 
             transmittedPitch = motion.getCalibratedPitch()
-            transmittedPitch = isPitchControlInverted ? -transmittedPitch : transmittedPitch;
+            transmittedPitch = settings.isPitchControlInverted ? -transmittedPitch : transmittedPitch;
             transmittedRoll = motion.getCalibratedRoll()
-            transmittedRoll = isRollControlInverted ? -transmittedRoll : transmittedRoll;
-            transmittedYaw = isYawControlEnabled ? motion.getCalibratedYaw() : 0
-            transmittedYaw = isYawControlInverted ? -transmittedYaw : transmittedYaw;
+            transmittedRoll = settings.isRollControlInverted ? -transmittedRoll : transmittedRoll;
+            transmittedYaw = settings.isYawControlEnabled ? motion.getCalibratedYaw() : 0
+            transmittedYaw = settings.isYawControlInverted ? -transmittedYaw : transmittedYaw;
 
             client.sendControls(
                 pitch: transmittedPitch,

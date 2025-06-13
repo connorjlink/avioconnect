@@ -14,7 +14,7 @@ class XPlaneUDPClient: ObservableObject {
     private var timer: DispatchSourceTimer?
     private var lastPing: Date = Date.distantPast
     
-    private static var DEFAULT_REVERSETHRUST_DATAREF = "sim/flightmodel/controls/reverser_ratio"
+    private static var DEFAULT_REVERSETHRUST_DATAREF = "sim/engines/thrust_reverse_toggle"
     private static var DEFAULT_BRAKES_DATAREF = "sim/cockpit2/controls/wheel_brake_ratio"
     private static var DEFAULT_GEAR_DATAREF = "sim/cockpit2/controls/gear_handle_down"
     private static var DEFAULT_AUTOTHROTTLE_DATAREF = "sim/cockpit2/autopilot/autothrottle_enabled"
@@ -22,6 +22,7 @@ class XPlaneUDPClient: ObservableObject {
     
     private static var DEFAULT_SPEEDBRAKES_DATAREF = "sim/cockpit2/controls/speedbrake_ratio"
     private static var DEFAULT_FLAPS_DATAREF = "sim/cockpit2/controls/flap_ratio"
+    private static var DEFAULT_TRIM_DATAREF = "sim/cockpit2/controls/elevator_trim"
     
     @Published var reverseThrustDataref = DEFAULT_REVERSETHRUST_DATAREF
     @Published var brakesDataref = DEFAULT_BRAKES_DATAREF
@@ -30,7 +31,7 @@ class XPlaneUDPClient: ObservableObject {
     @Published var autopilotCommand = DEFAULT_AUTOPILOT_COMMAND
     @Published var speedbrakesDataref = DEFAULT_SPEEDBRAKES_DATAREF
     @Published var flapsDataref = DEFAULT_FLAPS_DATAREF
-    
+    @Published var trimDataref = DEFAULT_TRIM_DATAREF
     
     @Published var isConnected: Bool = false
     
@@ -131,11 +132,7 @@ class XPlaneUDPClient: ObservableObject {
     }
     
     func sendReversers(status: Bool) {
-        if status {
-            sendCMND(of: "sim/engines/thrust_reverse_on")
-        } else {
-            sendCMND(of: "sim/engines/thrust_reverse_off")
-        }
+        sendCMND(of: reverseThrustDataref)
     }
 
     func sendGear(status: Bool) {
@@ -161,8 +158,12 @@ class XPlaneUDPClient: ObservableObject {
         sendDREF(value: value, for: flapsDataref)
     }
     
-    func sendSpeedbrakes(speedbrakesValue: Float) {
-        sendDREF(value: speedbrakesValue, for: speedbrakesDataref)
+    func sendSpeedbrakes(value: Float) {
+        sendDREF(value: value, for: speedbrakesDataref)
+    }
+    
+    func sendTrim(value: Float) {
+        sendDREF(value: value, for: trimDataref)
     }
 
     private func startConnectionMonitor() {
@@ -178,10 +179,6 @@ class XPlaneUDPClient: ObservableObject {
 
     func startReceiving() {
         connection?.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] data, _, _, _ in
-//            if let data = data,
-//                let header = String(data: data.prefix(5), encoding: .utf8),
-//                header == "PING\0" {
-//            }
             self?.lastPing = Date()
             self?.startReceiving()
         }
