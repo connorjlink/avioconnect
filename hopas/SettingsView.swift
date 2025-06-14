@@ -9,10 +9,11 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsModel
-    @ObservedObject var client: XPlaneUDPClient
-    var myIpAddress: String
+    @ObservedObject var client: SimulatorUDPClient
     
-    init(settings: SettingsModel, client: XPlaneUDPClient, myIpAddress: String) {
+    private var myIpAddress: String
+    
+    init(settings: SettingsModel, client: SimulatorUDPClient, myIpAddress: String) {
         self.settings = settings
         self.client = client
         self.myIpAddress = myIpAddress
@@ -120,7 +121,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Reverse Thrust Dataref")
                             Spacer()
-                            TextField("Enter a valid dataref...", text: $client.reverseThrustDataref)
+                            TextField("Enter a valid dataref...", text: $settings.reverseThrustDataref)
                                 .foregroundStyle(.gray)
                                 .bold()
                                 .multilineTextAlignment(.trailing)
@@ -132,7 +133,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Brakes Dataref")
                             Spacer()
-                            TextField("Enter a valid dataref...", text: $client.brakesDataref)
+                            TextField("Enter a valid dataref...", text: $settings.brakesDataref)
                                 .foregroundStyle(.gray)
                                 .bold()
                                 .multilineTextAlignment(.trailing)
@@ -144,7 +145,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Gear Dataref")
                             Spacer()
-                            TextField("Enter a valid dataref...", text: $client.gearDataref)
+                            TextField("Enter a valid dataref...", text: $settings.gearDataref)
                                 .foregroundStyle(.gray)
                                 .bold()
                                 .multilineTextAlignment(.trailing)
@@ -156,7 +157,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Autothrottle Command")
                             Spacer()
-                            TextField("Enter a valid command...", text: $client.autothrottleDataref)
+                            TextField("Enter a valid command...", text: $settings.autothrottleDataref)
                                 .foregroundStyle(.gray)
                                 .bold()
                                 .multilineTextAlignment(.trailing)
@@ -168,7 +169,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Autopilot Command")
                             Spacer()
-                            TextField("Enter a valid command...", text: $client.autopilotCommand)
+                            TextField("Enter a valid command...", text: $settings.autopilotCommand)
                                 .foregroundStyle(.gray)
                                 .bold()
                                 .multilineTextAlignment(.trailing)
@@ -180,7 +181,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Speedbrakes Dataref")
                             Spacer()
-                            TextField("Enter a valid dataref...", text: $client.speedbrakesDataref)
+                            TextField("Enter a valid dataref...", text: $settings.speedbrakesDataref)
                                 .foregroundStyle(.gray)
                                 .bold()
                                 .multilineTextAlignment(.trailing)
@@ -216,7 +217,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Flaps Dataref")
                             Spacer()
-                            TextField("Enter a valid dataref...", text: $client.flapsDataref)
+                            TextField("Enter a valid dataref...", text: $settings .flapsDataref)
                                 .foregroundStyle(.gray)
                                 .bold()
                                 .multilineTextAlignment(.trailing)
@@ -239,7 +240,7 @@ struct SettingsView: View {
                         }
                     }
                     
-                    Text("Many addon aircraft ignore some or many of the default datarefs to which these controls write. Please test compatibility and report any concerns to me and disable non-functional controls to declutter them from the interface.")
+                    Text("Many addon aircraft ignore some or many of the default datarefs to which these controls write. Please refer to their documentation for the appropriate datarefs to update above for best support.")
                         .font(.footnote)
                 }
                 

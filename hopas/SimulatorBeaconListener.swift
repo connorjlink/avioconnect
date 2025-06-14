@@ -1,5 +1,5 @@
 //
-//  XPlaneBeaconListener.swift
+//  SimulatorBeaconListener.swift
 //  hopas
 //
 //  Created by Connor Link on 5/15/25.
@@ -8,11 +8,11 @@
 import SwiftUI
 import Network
 
-class XPlaneBeaconListener: ObservableObject {
-    @Published var detectedInstances: [XPlaneInstance] = []
+class SimulatorBeaconListener: ObservableObject {
+    @Published var detectedInstances: [SimulatorInstance] = []
     private var listener: NWListener?
 
-    struct XPlaneInstance: Identifiable {
+    struct SimulatorInstance: Identifiable {
         let id = UUID()
         let ipAddress: String
         let port: UInt16 = 49000
@@ -58,7 +58,7 @@ class XPlaneBeaconListener: ObservableObject {
         guard header == "BECN\0" else { return }
 
         DispatchQueue.main.async {
-            let instance = XPlaneInstance(ipAddress: ipAddress)
+            let instance = SimulatorInstance(ipAddress: ipAddress)
             if !self.detectedInstances.contains(where: { $0.ipAddress == ipAddress }) {
                 self.detectedInstances.append(instance)
             }

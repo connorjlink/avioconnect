@@ -12,19 +12,19 @@ extension Comparable {
 // MARK: - ContentView
 struct ContentView: View {
     @StateObject private var motion = MotionManager()
-    
-    private static var defaultIpAddress = "192.168.1.21";
-    private static var defaultPort: UInt16 = 49000;
-    @ObservedObject private var client = XPlaneUDPClient(host: defaultIpAddress, port: defaultPort)
-    @ObservedObject private var settings = SettingsModel()
-    
+    @StateObject private var settings = SettingsModel()
+    @StateObject private var client: SimulatorUDPClient
+
     init() {
-        // try to fetch from file if possible
+        let settings = SettingsModel()
         settings.load()
+        
+        _settings = StateObject(wrappedValue: settings)
+        _client = StateObject(wrappedValue: SimulatorUDPClient(settings: settings, host: SettingsModel.DEFAULT_IPADDRESS, port: SettingsModel.DEFAULT_PORT))
     }
     
-    @StateObject private var beaconListener = XPlaneBeaconListener()
-    @State private var selectedInstance: XPlaneBeaconListener.XPlaneInstance?
+    @StateObject private var beaconListener = SimulatorBeaconListener()
+    @State private var selectedInstance: SimulatorBeaconListener.SimulatorInstance?
 
     @StateObject private var orientationObserver = OrientationObserver()
     

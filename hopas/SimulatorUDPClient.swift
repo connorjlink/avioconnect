@@ -1,5 +1,5 @@
 //
-//  XPlaneUDPClient.swift
+//  SimulatorUDPClient.swift
 //  hopas
 //
 //  Created by Connor Link on 5/15/25.
@@ -8,39 +8,27 @@
 import Network
 import Foundation
 
-class XPlaneUDPClient: ObservableObject {
+class SimulatorUDPClient: ObservableObject {
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "xplane.udp")
     private var timer: DispatchSourceTimer?
     private var lastPing: Date = Date.distantPast
     
-    private static var DEFAULT_REVERSETHRUST_DATAREF = "sim/engines/thrust_reverse_toggle"
-    private static var DEFAULT_BRAKES_DATAREF = "sim/cockpit2/controls/wheel_brake_ratio"
-    private static var DEFAULT_GEAR_DATAREF = "sim/cockpit2/controls/gear_handle_down"
-    private static var DEFAULT_AUTOTHROTTLE_DATAREF = "sim/cockpit2/autopilot/autothrottle_enabled"
-    private static var DEFAULT_AUTOPILOT_COMMAND = "sim/autopilot/servos_toggle" //"sim/cockpit2/autopilot/servos_enabled"
-    
-    private static var DEFAULT_SPEEDBRAKES_DATAREF = "sim/cockpit2/controls/speedbrake_ratio"
-    private static var DEFAULT_FLAPS_DATAREF = "sim/cockpit2/controls/flap_ratio"
-    private static var DEFAULT_TRIM_DATAREF = "sim/cockpit2/controls/elevator_trim"
-    
-    @Published var reverseThrustDataref = DEFAULT_REVERSETHRUST_DATAREF
-    @Published var brakesDataref = DEFAULT_BRAKES_DATAREF
-    @Published var gearDataref = DEFAULT_GEAR_DATAREF
-    @Published var autothrottleDataref = DEFAULT_AUTOTHROTTLE_DATAREF
-    @Published var autopilotCommand = DEFAULT_AUTOPILOT_COMMAND
-    @Published var speedbrakesDataref = DEFAULT_SPEEDBRAKES_DATAREF
-    @Published var flapsDataref = DEFAULT_FLAPS_DATAREF
-    @Published var trimDataref = DEFAULT_TRIM_DATAREF
-    
     @Published var isConnected: Bool = false
     
-    init(host: String, port: UInt16 = 49000) {
+    private var settings: SettingsModel
+    
+    init(settings: SettingsModel, host: String, port: UInt16 = 49000) {
+        self.settings = settings
         create(host: host, port: port)
     }
 
     deinit {
         cleanup()
+    }
+    
+    private func sendPacket(data: Data) {
+        connection?.send(content: data, completion: .contentProcessed { _ in })
     }
     
     func create(host: String, port: UInt16 = 49000) {
@@ -63,6 +51,12 @@ class XPlaneUDPClient: ObservableObject {
         timer = nil
     }
     
+    func sendPing() {
+        var packet = Data()
+        packet.append(contentsOf: "PING\0".utf8)
+        connection?.send(content: packet, completion: .contentProcessed { _ in })
+    }
+    
     private func sendDATA(index: Int32, values: [Float]) {
         var packet = Data()
         packet.append(contentsOf: "DATA\0".utf8)
@@ -76,7 +70,7 @@ class XPlaneUDPClient: ObservableObject {
             packet.append(Data(bytes: &v, count: 4))
         }
         
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
+        sendPacket(data: packet)
     }
     
     private func sendDREF(value: Float, for dataref: String) {
@@ -96,7 +90,7 @@ class XPlaneUDPClient: ObservableObject {
             packet.append(Data(repeating: 0, count: 509 - packet.count))
         }
 
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
+        sendPacket(data: packet)
     }
     
     private func sendCMND(of command: String) {
@@ -107,7 +101,7 @@ class XPlaneUDPClient: ObservableObject {
             packet.append(cmdData)
         }
         
-        connection?.send(content: packet, completion: .contentProcessed { _ in })
+        sendPacket(data: packet)
     }
 
     func sendControls(pitch: Float, roll: Float, yaw: Float) {
@@ -123,8 +117,7 @@ class XPlaneUDPClient: ObservableObject {
             packet.append(Data(bytes: &v, count: 4))
         }
         
-        connection?.send(content: packet, completion: .contentProcessed { _ in
-        })
+        sendPacket(data: packet)
     }
     
     func sendThrottle(value: Float) {
@@ -132,38 +125,38 @@ class XPlaneUDPClient: ObservableObject {
     }
     
     func sendReversers(status: Bool) {
-        sendCMND(of: reverseThrustDataref)
+        sendCMND(of: settings.reverseThrustDataref)
     }
 
     func sendGear(status: Bool) {
         let gearValue: Float = status ? 1.0 : 0.0
-        sendDREF(value: gearValue, for: gearDataref)
+        sendDREF(value: gearValue, for: settings.gearDataref)
     }
     
     func sendBrakes(status: Bool) {
         let brakeValue: Float = status ? 1.0 : 0.0
-        sendDREF(value: brakeValue, for: brakesDataref)
+        sendDREF(value: brakeValue, for: settings.brakesDataref)
     }
     
     func sendAutothrottle(status: Bool) {
         let value: Float = status ? 0.0 : -1.0
-        sendDREF(value: value, for: autothrottleDataref)
+        sendDREF(value: value, for: settings.autothrottleDataref)
     }
     
     func sendAutopilot(status: Bool) {
-        sendCMND(of: autopilotCommand)
+        sendCMND(of: settings.autopilotCommand)
     }
     
     func sendFlaps(value: Float) {
-        sendDREF(value: value, for: flapsDataref)
+        sendDREF(value: value, for: settings.flapsDataref)
     }
     
     func sendSpeedbrakes(value: Float) {
-        sendDREF(value: value, for: speedbrakesDataref)
+        sendDREF(value: value, for: settings.speedbrakesDataref)
     }
     
     func sendTrim(value: Float) {
-        sendDREF(value: value, for: trimDataref)
+        sendDREF(value: value, for: settings.trimDataref)
     }
 
     private func startConnectionMonitor() {
@@ -182,17 +175,5 @@ class XPlaneUDPClient: ObservableObject {
             self?.lastPing = Date()
             self?.startReceiving()
         }
-    }
-    
-    func pingPacket() -> Data {
-        var packet = Data()
-        packet.append(contentsOf: "PING\0".utf8)
-        return packet
-    }
-
-    func ping() {
-        let packet = pingPacket()
-        connection?.send(content: packet, completion: .contentProcessed { _ in
-        })
     }
 }
