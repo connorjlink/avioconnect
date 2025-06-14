@@ -9,7 +9,7 @@ import SwiftUI
 import Combine
 
 class SettingsModel: ObservableObject, Codable {
-    public static var DEFAULT_IPADDRESS = "192.168.1.21";
+    public static var DEFAULT_IPADDRESS = "192.168.1.1";
     public static var DEFAULT_PORT: UInt16 = 49000;
     
     private static var DEFAULT_REVERSETHRUST_DATAREF = "sim/engines/thrust_reverse_toggle"
