@@ -100,7 +100,7 @@ struct ContentView: View {
                     if !isOpened {
                         ZStack(alignment: .topTrailing) {
                             VStack {
-                                Text("Detected Simulator Instances")
+                                Text("Scanning for Simulator Instances")
                                     .font(.headline)
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.top, 16)
@@ -109,13 +109,17 @@ struct ContentView: View {
                                     .font(.subheadline)
                                     .foregroundColor(.gray)
                     
-                                List(beaconListener.detectedInstances) { instance in
-                                    Button(action: {
-                                        selectedInstance = instance
-                                        isOpened = true
-                                        client.create(host: settings.ipAddress, port: UInt16(settings.port) ?? 49000)
-                                    }) {
-                                        Text("\(instance.ipAddress):\(String(instance.port))")
+                                if (beaconListener.detectedInstances.isEmpty) {
+                                    Text("No instances found. Please verify both devices are runnong on the same network.")
+                                } else {
+                                    List(beaconListener.detectedInstances) { instance in
+                                        Button(action: {
+                                            selectedInstance = instance
+                                            isOpened = true
+                                            client.create(host: settings.ipAddress, port: UInt16(settings.port) ?? 49000)
+                                        }) {
+                                            Text("\(instance.ipAddress):\(String(instance.port))")
+                                        }
                                     }
                                 }
                             }
