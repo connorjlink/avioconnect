@@ -1,5 +1,5 @@
-# HOPAS
-A play on HOTAS—"hands-on-phone-and-stick". Okay, maybe the acronym is terrible, but honestly the app works pretty well. It effortlessly synchronizes an iOS-device–equipped IMU readouts to control X-Plane 12 aircraft natively. It features smooth roll, pitch, togglable yaw control, and an optional throttle control feature.
+# AvioConnect
+Effortlessly synchronize an iOS-device–equipped device using IMU readouts to control X-Plane 12 aircraft natively and precisely. Featuring customizable datarefs and smooth roll, pitch, toggletable yaw control, and others, AvioConnect redefines control for desktop flight simulation.
 
 ## Planned Features
 - ~~Improved UI layout and better compatibility with iPad devices~~ [X] COMPLETE
