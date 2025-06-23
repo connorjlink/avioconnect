@@ -28,46 +28,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("Application Setup")) {
-                    HStack {
-                        Text("Load Configuration")
-                        Spacer()
-                        Button(action: {
-                            showLoadConfirm = true
-                        }) {
-                            Image(systemName: "square.and.arrow.up")
-                                .foregroundColor(.blue)
-                                .imageScale(.large)
-                        }
-                        .confirmationDialog("Load settings from disk? This will overwrite any unsaved changes.", isPresented: $showLoadConfirm) {
-                            Button("Load", role: .destructive) {
-                                settings.load()
-                                showLoadAlert = true
-                            }
-                            Button("Cancel", role: .cancel) { }
-                        }
-                        .alert("Settings Loaded Successfully", isPresented: $showLoadAlert) {
-                            Button("OK", role: .cancel) { }
-                        }
-                    }
-                    
-                    HStack {
-                        Text("Save Configuration")
-                        Spacer()
-                        Button(action: {
-                            settings.save()
-                            showSaveAlert = true
-                        }) {
-                            Image(systemName: "square.and.arrow.down")
-                                .foregroundColor(.blue)
-                                .imageScale(.large)
-                        }
-                        .alert("Settings Saved Successfully", isPresented: $showSaveAlert) {
-                            Button("OK", role: .cancel) { }
-                        }
-                    }
-                }
-                
                 Section(header: Text("Control Settings")) {
                     Toggle("Enable Yaw Control", isOn: $settings.isYawControlEnabled)
                     
@@ -285,6 +245,49 @@ struct SettingsView: View {
                             get: { Float(settings.transmitRate) },
                             set: { settings.transmitRate = Int($0) }
                         ), in: 1...30)
+                    }
+                }
+                Section(header: Text("Application Setup")) {
+                    HStack {
+                        Text("Load Configuration")
+                        Text("Performed automatically at app startup")
+                            .foregroundStyle(.gray)
+                        Spacer()
+                        Button(action: {
+                            showLoadConfirm = true
+                        }) {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundColor(.blue)
+                                .imageScale(.large)
+                        }
+                        .confirmationDialog("Forcibly reload settings? This will overwrite any unsaved changes.", isPresented: $showLoadConfirm) {
+                            Button("Load", role: .destructive) {
+                                settings.load()
+                                showLoadAlert = true
+                            }
+                            Button("Cancel", role: .cancel) { }
+                        }
+                        .alert("Settings Loaded Successfully", isPresented: $showLoadAlert) {
+                            Button("OK", role: .cancel) { }
+                        }
+                    }
+                    
+                    HStack {
+                        Text("Save Configuration")
+                        Text("Performed automatically at app shutdown")
+                            .foregroundStyle(.gray)
+                        Spacer()
+                        Button(action: {
+                            settings.save()
+                            showSaveAlert = true
+                        }) {
+                            Image(systemName: "square.and.arrow.down")
+                                .foregroundColor(.blue)
+                                .imageScale(.large)
+                        }
+                        .alert("Settings Saved Successfully", isPresented: $showSaveAlert) {
+                            Button("OK", role: .cancel) { }
+                        }
                     }
                 }
                 Section(header: Text("About")) {
