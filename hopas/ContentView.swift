@@ -110,7 +110,7 @@ struct ContentView: View {
                                     .foregroundColor(.gray)
                     
                                 if (beaconListener.detectedInstances.isEmpty) {
-                                    Text("No instances found. Please verify both devices are runnong on the same network.")
+                                    Text("No instances found. Please verify both devices are running on the same network.")
                                 } else {
                                     List(beaconListener.detectedInstances) { instance in
                                         Button(action: {
