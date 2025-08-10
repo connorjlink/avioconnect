@@ -263,6 +263,8 @@
 				DEVELOPMENT_TEAM = Q59J67R6R5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = AvioConnect;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.simulation-games";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs local network access to automatically scan for and connect to X-Plane simulator instances running on other connected devices.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion data to enable intuitive simulator flight controls.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -275,8 +277,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.connorjlink.avioconnect;
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.connorjlink.hopas;
 				PRODUCT_NAME = AvioConnect;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -298,6 +300,8 @@
 				DEVELOPMENT_TEAM = Q59J67R6R5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = AvioConnect;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.simulation-games";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs local network access to automatically scan for and connect to X-Plane simulator instances running on other connected devices.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion data to enable intuitive simulator flight controls.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -310,8 +314,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.connorjlink.avioconnect;
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.connorjlink.hopas;
 				PRODUCT_NAME = AvioConnect;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
